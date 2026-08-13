@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ApplicationPackage
+  SchemaVersion="1.0"
+  AutodeskProduct="AutoCAD"
+  Name="AutoVadCivilTakeoff"
+  Description="AutoVAD Design Automation takeoff exporter"
+  AppVersion="1.0.0"
+  ProductType="Application"
+  FriendlyVersion="1.0.0"
+  ProductCode="{A7C0AD10-5B2E-4F3A-9C11-0AUTOVAD0001}"
+  UpgradeCode="{A7C0AD10-5B2E-4F3A-9C11-0AUTOVAD0000}">
+  <CompanyDetails Name="AutoVAD" Url="https://localhost" Email="support@autovad.local" />
+  <Components>
+    <RuntimeRequirements OS="Win64" Platform="AutoCAD*" SeriesMin="R24.0" SeriesMax="R25.9" />
+    <ComponentEntry
+      AppName="AutoVadCivilTakeoff"
+      Version="1.0.0"
+      ModuleName="./Contents/AutoVadCivilTakeoff.dll"
+      AppDescription="Exports geometry takeoff JSON for AutoVAD"
+      LoadOnCommandInvocation="True"
+      LoadOnAutoCADStartup="False">
+      <Commands GroupName="AutoVad">
+        <Command Global="AutoVadTakeoff" Local="AutoVadTakeoff" />
+      </Commands>
+    </ComponentEntry>
+  </Components>
+</ApplicationPackage>

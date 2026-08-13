@@ -1,0 +1,341 @@
+:root {
+  --ink: #07100e;
+  --paper: #f3f5ed;
+  --acid: #d9ff43;
+  --mint: #85ffd0;
+  --muted: #a8b0a9;
+  --line: rgba(255, 255, 255, 0.12);
+  --panel: #101f1a;
+  --panel-2: #0d1814;
+  --panel-border: #2a3a33;
+  --text: #eaf0eb;
+  --text-dim: #8e9b94;
+  --cm-bg: var(--ink);
+  --cm-ink: var(--text);
+  --cm-slate: var(--text-dim);
+  --cm-line: var(--panel-border);
+  --cm-navy: #0d1814;
+  --cm-steel: var(--mint);
+  --cm-sand: var(--acid);
+  --cm-mist: rgba(217, 255, 67, 0.08);
+  --font-display: Arial, Helvetica, sans-serif;
+  --font-body: Arial, Helvetica, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--ink);
+  font-family: var(--font-body);
+}
+
+h1,
+h2,
+h3,
+h4,
+.brand-font {
+  font-family: var(--font-display);
+  letter-spacing: -0.04em;
+}
+
+.page-shell {
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.page-kicker {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--acid);
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.stat-value {
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+}
+
+.muted {
+  color: var(--text-dim);
+}
+
+.surface-panel {
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: 0;
+  color: var(--text);
+}
+
+.status-chip {
+  text-transform: capitalize;
+}
+
+/* App shell grid texture */
+.cm-grid-bg {
+  background-color: var(--ink);
+  background-image:
+    linear-gradient(rgba(155, 255, 207, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(155, 255, 207, 0.035) 1px, transparent 1px);
+  background-size: 44px 44px;
+}
+
+/* Vuetify global polish to match landing */
+.v-application {
+  background: var(--ink) !important;
+  color: var(--text);
+  font-family: var(--font-body) !important;
+}
+
+.v-btn {
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  font-weight: 800 !important;
+  font-size: 11px !important;
+  border-radius: 0 !important;
+}
+
+.v-btn--size-large {
+  font-size: 12px !important;
+}
+
+.v-card {
+  border-radius: 0 !important;
+  border: 1px solid var(--panel-border);
+  background: var(--panel) !important;
+}
+
+.v-chip {
+  border-radius: 0 !important;
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 10px !important;
+}
+
+.v-field {
+  border-radius: 0 !important;
+  --v-field-border-opacity: 1;
+}
+
+.v-field .v-field__outline {
+  --v-field-border-opacity: 1;
+  color: #35483f;
+}
+
+.v-field--focused .v-field__outline {
+  color: var(--acid) !important;
+}
+
+.v-label,
+.v-messages {
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+.v-tabs .v-tab {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-family: var(--font-mono);
+  font-size: 11px !important;
+}
+
+.v-table {
+  background: transparent !important;
+  color: var(--text);
+}
+
+.v-table > .v-table__wrapper > table > thead > tr > th {
+  font-family: var(--font-mono) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim) !important;
+  border-bottom-color: var(--panel-border) !important;
+}
+
+.v-table > .v-table__wrapper > table > tbody > tr > td {
+  border-bottom-color: #21312a !important;
+  color: #c9d3cd;
+}
+
+.v-list {
+  background: transparent !important;
+}
+
+.v-alert {
+  border-radius: 0 !important;
+}
+
+.v-dialog > .v-overlay__content > .v-card {
+  border: 1px solid rgba(217, 255, 67, 0.28);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
+a {
+  color: var(--acid);
+}
+
+/* Keep nested Vuetify surfaces dark (lists, menus, overlays, inputs) */
+.v-overlay__content > .v-list,
+.v-menu > .v-overlay__content > .v-card,
+.v-menu > .v-overlay__content > .v-list {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border: 1px solid var(--panel-border);
+  border-radius: 0 !important;
+}
+
+.v-list-item-title,
+.v-list-item-subtitle {
+  color: inherit;
+}
+
+.v-list-item:hover > .v-list-item__overlay {
+  opacity: 0.08;
+}
+
+.v-field__input,
+.v-field input,
+.v-field textarea {
+  color: var(--text) !important;
+}
+
+.v-field__field,
+.v-field__loader,
+.v-field__outline {
+  border-radius: 0 !important;
+}
+
+.v-input__details {
+  color: var(--text-dim);
+}
+
+.v-file-input .v-chip,
+.v-autocomplete .v-chip {
+  background: #15231e !important;
+  color: var(--acid) !important;
+  border: 1px solid rgba(217, 255, 67, 0.28);
+}
+
+.v-expansion-panels,
+.v-expansion-panel,
+.v-expansion-panel-title,
+.v-expansion-panel-text__wrapper {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border-radius: 0 !important;
+}
+
+.v-skeleton-loader {
+  background: var(--panel) !important;
+}
+
+.v-data-table,
+.v-data-table__tr,
+.v-table {
+  background: transparent !important;
+}
+
+.v-pagination .v-btn {
+  background: #12221c !important;
+}
+
+.v-selection-control__input > .v-icon {
+  color: var(--text-dim);
+}
+
+.v-checkbox-btn .v-selection-control__input > .v-icon,
+.v-radio-btn .v-selection-control__input > .v-icon {
+  opacity: 1;
+}
+
+.v-tabs {
+  color: var(--text-dim);
+}
+
+.v-tab {
+  color: #829087 !important;
+}
+
+.v-tab--selected {
+  color: var(--acid) !important;
+}
+
+.v-tabs-slider,
+.v-tab__slider {
+  background: var(--acid) !important;
+  color: var(--acid) !important;
+}
+
+.v-timeline-divider__dot {
+  background: var(--acid) !important;
+}
+
+.v-timeline-item__body {
+  color: var(--text);
+}
+
+code {
+  font-family: var(--font-mono);
+  color: var(--acid);
+  background: rgba(217, 255, 67, 0.08);
+  padding: 1px 5px;
+}
+
+pre {
+  font-family: var(--font-mono);
+  color: #c9d3cd;
+  background: #0a1411;
+  border: 1px solid var(--panel-border);
+  padding: 12px;
+  overflow: auto;
+}
+
+.v-btn--variant-outlined:not(.text-error):not(.text-warning):not(.text-success) {
+  border-color: #3a4c44 !important;
+}
+
+.v-btn--variant-outlined.text-primary,
+.v-btn.text-primary.v-btn--variant-outlined {
+  border-color: rgba(217, 255, 67, 0.45) !important;
+  color: var(--acid) !important;
+}
+
+.v-overlay__scrim {
+  background: rgba(2, 7, 5, 0.72) !important;
+}
+
+.v-main {
+  background: transparent !important;
+}
+
+.v-toolbar {
+  color: var(--text);
+}
+
+.v-sheet {
+  background: var(--panel) !important;
+  color: var(--text) !important;
+  border-radius: 0 !important;
+}

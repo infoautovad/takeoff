@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+backend/.env
+backend/storage/
+backend/*.db
+backend/civilmind.db
+
+# Node
+node_modules/
+frontend/dist/
+*.local
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+terraform/
+
+# Ignore local secrets / state
+*.tfvars
+!terraform.tfvars.example
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+
