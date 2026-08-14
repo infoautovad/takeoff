@@ -106,7 +106,7 @@ async function setRole(userId: number, role: string) {
                   <td>
                     <v-select
                       :model-value="u.role"
-                      :items="['admin','project_manager','design_engineer','quantity_surveyor','reviewer','client']"
+                      :items="['admin','project_manager','design_engineer','quantity_surveyor','reviewer','client','other']"
                       density="compact"
                       hide-details
                       style="max-width: 180px"

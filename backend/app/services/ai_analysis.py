@@ -102,6 +102,10 @@ def analyze_content(
                     bid_catalog=bid_catalog,
                     max_pages=settings.openai_vision_max_pages,
                     dpi=settings.openai_vision_dpi,
+                    min_score=settings.openai_vision_min_score,
+                    force_utility_pages=settings.openai_vision_force_utility_pages,
+                    scan_all_pages=settings.openai_vision_scan_all_pages,
+                    batch_pages=settings.openai_vision_batch_pages,
                 )
             except Exception as exc:
                 errors.append(f"drawing vision: {exc}")
@@ -362,8 +366,8 @@ def _analyze_with_openai(
 ) -> dict[str, Any]:
     from app.services.openai_client import ask_openai_json
 
-    clipped = (content.text or "")[:40000]
-    tables_preview = json.dumps(content.tables[:8], ensure_ascii=True)[:14000]
+    clipped = (content.text or "")[:50000]
+    tables_preview = json.dumps(content.tables[:12], ensure_ascii=True)[:18000]
     system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog)
 
     user = f"""
@@ -474,20 +478,29 @@ def _analyze_pdf_drawings_with_vision(
     document_id: int,
     pdf_path: Path,
     bid_catalog: list[dict[str, Any]] | None = None,
-    max_pages: int = 10,
-    dpi: int = 140,
+    max_pages: int = 0,
+    dpi: int = 150,
+    min_score: float = 18.0,
+    force_utility_pages: bool = True,
+    scan_all_pages: bool = True,
+    batch_pages: int = 8,
     content: ExtractedContent | None = None,
 ) -> dict[str, Any]:
     from app.services.openai_client import ask_openai_vision_json
-    from app.services.pdf_vision import select_and_render_pdf_pages
+    from app.services.pdf_vision import iter_rendered_pdf_batches, plan_pdf_vision_pages
 
-    pages = select_and_render_pdf_pages(pdf_path, max_pages=max_pages, dpi=dpi)
-    if not pages:
+    plan = plan_pdf_vision_pages(
+        pdf_path,
+        max_pages=max_pages,
+        min_score=min_score,
+        force_utility_pages=force_utility_pages,
+        scan_all_pages=scan_all_pages,
+        batch_pages=batch_pages,
+    )
+    if not plan.selected_pages:
         raise RuntimeError("No PDF pages could be rendered for vision")
 
     system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog)
-    page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in pages)
-    images = [{"page": p.page, "png_b64": p.png_b64} for p in pages]
 
     # Hint model with OCR snippets that look like water-main labels
     label_hints = ""
@@ -502,11 +515,35 @@ def _analyze_pdf_drawings_with_vision(
         if snippets:
             label_hints = "OCR/label snippets that may appear on sheets:\n" + "\n".join(f"- {s}" for s in snippets)
 
-    user = f"""
+    vision_system = (
+        system
+        + " "
+        + code_hint
+        + " Focus on drawings AND utility labels/callouts (especially water mains)."
+    )
+    all_items: list[dict[str, Any]] = []
+    all_facts: list[Any] = []
+    summaries: list[str] = []
+    vision_pages_meta: list[dict[str, Any]] = []
+    batch_errors: list[str] = []
+    batch_index = 0
+
+    for batch in iter_rendered_pdf_batches(pdf_path, plan, dpi=dpi, batch_pages=batch_pages):
+        batch_index += 1
+        page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in batch)
+        images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
+        vision_pages_meta.extend({"page": p.page, "reason": p.reason} for p in batch)
+        coverage_note = (
+            f"This is batch {batch_index} of the PDF. "
+            f"Document has {plan.page_count} page(s); this request covers pages "
+            f"{[p.page for p in batch]}. Extract ALL bid/takeoff items visible on THESE sheets only."
+        )
+        user = f"""
 You are looking at RENDERED ENGINEERING PLAN SHEETS from a civil PDF (not just OCR text).
 
 Document: {filename}
 Rendered sheets: {page_meta}
+{coverage_note}
 
 Primary job:
 - Read drawings, plan views, profiles, typical details, dimensions, hatch notes, CALLOUTS/LABELS,
@@ -542,25 +579,70 @@ Return JSON:
   "needs_review": true
 }}
 """
-    data = ask_openai_vision_json(
-        system + " " + code_hint + " Focus on drawings AND utility labels/callouts (especially water mains).",
-        user,
-        images,
+        try:
+            data = ask_openai_vision_json(vision_system, user, images)
+        except Exception as exc:
+            batch_errors.append(f"batch {batch_index} pages {[p.page for p in batch]}: {exc}")
+            continue
+        batch_items = _items_from_openai_payload(
+            data,
+            filename=filename,
+            document_id=document_id,
+            default_method="OpenAI vision — engineering drawing sheet",
+        )
+        all_items.extend(batch_items)
+        all_facts.extend(data.get("facts") or [])
+        if data.get("summary"):
+            summaries.append(str(data["summary"]))
+
+    # Merge duplicate keys across batches (same desc/unit)
+    merged_pack = _merge_analysis_results(
+        {"items": [], "facts": [], "summary": "", "needs_review": False},
+        {
+            "items": all_items,
+            "facts": all_facts,
+            "summary": " ".join(summaries).strip(),
+            "needs_review": len(all_items) == 0,
+            "vision_pages": vision_pages_meta,
+        },
     )
-    items = _items_from_openai_payload(
-        data,
-        filename=filename,
-        document_id=document_id,
-        default_method="OpenAI vision — engineering drawing sheet",
+    items = merged_pack.get("items") or all_items
+    scanned = len(plan.selected_pages)
+    summary = (
+        f"Vision-analyzed {scanned}/{plan.page_count} page(s) from '{filename}' "
+        f"in {batch_index} batch(es)."
     )
+    if summaries:
+        summary = f"{summary} {' '.join(summaries[:3])}"
+    if plan.truncated:
+        summary += (
+            f" Safety cap skipped {len(plan.skipped_pages)} page(s) "
+            f"(set OPENAI_VISION_MAX_PAGES=0 and OPENAI_VISION_SCAN_ALL_PAGES=true for full scan)."
+        )
+    if batch_errors:
+        summary += " Batch errors: " + " | ".join(batch_errors[:5])
+
     return {
         "engine": "openai+vision",
-        "summary": data.get("summary")
-        or f"Vision-analyzed {len(pages)} drawing sheet(s) from '{filename}'.",
-        "facts": data.get("facts") or [],
+        "summary": summary,
+        "facts": merged_pack.get("facts") or all_facts,
         "items": items,
-        "needs_review": bool(data.get("needs_review")) or len(items) == 0,
-        "vision_pages": [{"page": p.page, "reason": p.reason} for p in pages],
+        "needs_review": bool(merged_pack.get("needs_review"))
+        or len(items) == 0
+        or plan.truncated
+        or bool(batch_errors),
+        "vision_pages": vision_pages_meta,
+        "notes": (" | ".join(batch_errors) if batch_errors else None),
+        "vision_coverage": {
+            "page_count": plan.page_count,
+            "selected_pages": plan.selected_pages,
+            "skipped_pages": plan.skipped_pages,
+            "truncated": plan.truncated,
+            "scan_all": plan.scan_all,
+            "batch_pages": batch_pages,
+            "batches": batch_index,
+            "forced_utility_pages": plan.forced_utility_pages,
+        },
     }
 
 
@@ -610,6 +692,8 @@ def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str
         "needs_review": bool(text_result.get("needs_review") or vision_result.get("needs_review"))
         or len(items) == 0,
         "vision_pages": vision_result.get("vision_pages") or [],
+        "vision_coverage": vision_result.get("vision_coverage")
+        or text_result.get("vision_coverage"),
     }
 
 

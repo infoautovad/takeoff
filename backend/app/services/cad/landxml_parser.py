@@ -24,6 +24,18 @@ def parse_landxml(path: Path) -> dict[str, Any]:
     cross_sections: list[dict[str, Any]] = []
     texts: list[dict[str, Any]] = []
     layers: list[dict[str, Any]] = []
+    volumes: list[dict[str, Any]] = []
+
+    def _fattr(elem: ET.Element, *keys: str) -> float | None:
+        for key in keys:
+            raw = elem.attrib.get(key)
+            if raw is None:
+                continue
+            try:
+                return float(raw)
+            except ValueError:
+                continue
+        return None
 
     for elem in root.iter():
         name = _local(elem.tag)
@@ -40,12 +52,24 @@ def parse_landxml(path: Path) -> dict[str, Any]:
             layers.append({"name": f"Alignment:{alignments[-1]['name']}"})
 
         elif name in {"Surface", "SurfaceSource"}:
-            surfaces.append(
-                {
-                    "name": elem.attrib.get("name") or elem.attrib.get("Name"),
-                    "type": elem.attrib.get("desc") or elem.attrib.get("surfaceType"),
-                }
-            )
+            surf = {
+                "name": elem.attrib.get("name") or elem.attrib.get("Name"),
+                "type": elem.attrib.get("desc") or elem.attrib.get("surfaceType"),
+            }
+            # Pull cut/fill from child Volume / Volume2D if present
+            for child in elem:
+                cname = _local(child.tag)
+                if cname in {"Volume", "Volume2D", "SurfaceVolume"}:
+                    cut = _fattr(child, "cut", "Cut", "cutVol", "earthworkCut")
+                    fill = _fattr(child, "fill", "Fill", "fillVol", "earthworkFill")
+                    net = _fattr(child, "net", "Net", "vol", "volume")
+                    if cut is not None:
+                        surf["cut"] = cut
+                    if fill is not None:
+                        surf["fill"] = fill
+                    if net is not None:
+                        surf["net"] = net
+            surfaces.append(surf)
             layers.append({"name": f"Surface:{surfaces[-1]['name']}"})
 
         elif name == "Pipe":
@@ -74,12 +98,17 @@ def parse_landxml(path: Path) -> dict[str, Any]:
                 }
             )
 
-        elif name in {"Volume", "CgPoints"}:
-            pass
-
-        elif name == "Surface":
-            # already handled above; also look for Volume children later
-            pass
+        elif name in {"Volume", "Volume2D", "SurfaceVolume"}:
+            cut = _fattr(elem, "cut", "Cut", "cutVol", "earthworkCut")
+            fill = _fattr(elem, "fill", "Fill", "fillVol", "earthworkFill")
+            net = _fattr(elem, "net", "Net", "vol", "volume")
+            label = elem.attrib.get("name") or elem.attrib.get("desc") or "Volume"
+            if cut is not None:
+                volumes.append({"type": "cut", "name": label, "quantity": cut, "method": "LandXML Volume"})
+            if fill is not None:
+                volumes.append({"type": "fill", "name": label, "quantity": fill, "method": "LandXML Volume"})
+            if cut is None and fill is None and net is not None:
+                volumes.append({"type": "net", "name": label, "quantity": net, "method": "LandXML Volume"})
 
         elif name in {"CrossSect", "CrossSection"}:
             cross_sections.append(
@@ -108,6 +137,7 @@ def parse_landxml(path: Path) -> dict[str, Any]:
         "pipe_count": len(pipes),
         "structure_count": len(structures),
         "cross_section_count": len(cross_sections),
+        "volume_count": len(volumes),
         "total_alignment_length": total_align,
         "total_pipe_length": total_pipe,
     }
@@ -134,11 +164,13 @@ def parse_landxml(path: Path) -> dict[str, Any]:
         "alignments": alignments,
         "surfaces": surfaces,
         "pipes": pipes,
+        "volumes": volumes,
         "cross_sections": cross_sections,
         "stats": stats,
         "summary": (
             f"LandXML parsed: {stats['alignment_count']} alignments ({total_align} length units), "
             f"{stats['surface_count']} surfaces, {stats['pipe_count']} pipes ({total_pipe}), "
-            f"{stats['structure_count']} structures, {stats['cross_section_count']} cross-sections."
+            f"{stats['structure_count']} structures, {stats['volume_count']} volumes, "
+            f"{stats['cross_section_count']} cross-sections."
         ),
     }

@@ -24,6 +24,7 @@ class AdminUserOut(BaseModel):
     email: EmailStr
     full_name: str
     role: str
+    plan: str = "starter"
     is_active: bool
     is_blocked: bool
     created_at: str
@@ -110,6 +111,7 @@ def list_users(db: Session = Depends(get_db), _: User = Depends(get_current_admi
             email=u.email,
             full_name=u.full_name,
             role=u.role.value,
+            plan=getattr(u.plan, "value", None) or "starter",
             is_active=u.is_active,
             is_blocked=u.is_blocked,
             created_at=u.created_at.isoformat(),
@@ -138,6 +140,7 @@ def update_user(
         email=user.email,
         full_name=user.full_name,
         role=user.role.value,
+        plan=getattr(user.plan, "value", None) or "starter",
         is_active=user.is_active,
         is_blocked=user.is_blocked,
         created_at=user.created_at.isoformat(),

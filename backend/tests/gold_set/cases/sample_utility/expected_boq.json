@@ -1,0 +1,63 @@
+{
+  "id": "sample_utility",
+  "name": "Synthetic utility network (CAD extraction)",
+  "notes": "Gold expected items for quantity_engine on a synthetic APS-like extraction. No PDF/OpenAI required.",
+  "items": [
+    {
+      "description": "8-Inch Water Main",
+      "unit": "LF",
+      "category": "Utilities",
+      "quantity": 500,
+      "quantity_abs_tolerance": 5,
+      "required": true
+    },
+    {
+      "description": "12-Inch Water Main",
+      "unit": "LF",
+      "category": "Utilities",
+      "quantity": 200,
+      "quantity_abs_tolerance": 5,
+      "required": true
+    },
+    {
+      "description": "8-Inch Sanitary Sewer Pipe",
+      "unit": "LF",
+      "category": "Drainage",
+      "quantity": 150,
+      "quantity_abs_tolerance": 5,
+      "required": true
+    },
+    {
+      "description": "Water Valve",
+      "unit": "EA",
+      "category": "Utilities",
+      "quantity": 2,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "Fire Hydrant",
+      "unit": "EA",
+      "category": "Utilities",
+      "quantity": 1,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "Sanitary Sewer Manhole",
+      "unit": "EA",
+      "category": "Drainage",
+      "quantity": 2,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "Earthwork Cut",
+      "unit": "CY",
+      "category": "Earthwork",
+      "quantity": 1200,
+      "quantity_tolerance": 0.1,
+      "required": true
+    }
+  ]
+}

@@ -14,6 +14,14 @@ class UserRole(str, Enum):
     QUANTITY_SURVEYOR = "quantity_surveyor"
     REVIEWER = "reviewer"
     CLIENT = "client"
+    OTHER = "other"
+
+
+class SubscriptionPlan(str, Enum):
+    STARTER = "starter"
+    PROFESSIONAL = "professional"
+    BUSINESS = "business"
+    ENTERPRISE = "enterprise"
 
 
 class User(Base):
@@ -26,6 +34,15 @@ class User(Base):
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", values_callable=lambda x: [e.value for e in x]),
         default=UserRole.DESIGN_ENGINEER,
+        nullable=False,
+    )
+    plan: Mapped[SubscriptionPlan] = mapped_column(
+        SAEnum(
+            SubscriptionPlan,
+            name="subscription_plan",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        default=SubscriptionPlan.STARTER,
         nullable=False,
     )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

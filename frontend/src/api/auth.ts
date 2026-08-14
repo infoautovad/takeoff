@@ -5,7 +5,9 @@ export async function registerUser(payload: {
   email: string
   full_name: string
   password: string
-  role?: string
+  confirm_password: string
+  role: string
+  plan: string
 }): Promise<AuthResponse> {
   const { data } = await api.post<AuthResponse>('/auth/register', payload)
   return data

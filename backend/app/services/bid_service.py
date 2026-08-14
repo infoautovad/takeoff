@@ -334,6 +334,31 @@ def _token_set(text: str) -> set[str]:
     return {t for t in tokens if len(t) > 1 and t not in stop}
 
 
+def _size_token(text: str) -> str | None:
+    m = re.search(r"(\d{1,2}(?:\.\d+)?)\s*-?\s*(?:inch|in|\"|'')", text or "", re.I)
+    if not m:
+        m = re.search(r"\b(\d{1,2}(?:\.\d+)?)\s*\"", text or "")
+    if not m:
+        return None
+    try:
+        val = float(m.group(1))
+    except ValueError:
+        return None
+    if abs(val - int(val)) < 0.01:
+        return f"{int(val)}"
+    return f"{val:g}"
+
+
+def _units_compatible(a: str, b: str) -> bool:
+    na, nb = normalize_unit(a), normalize_unit(b)
+    if na == nb:
+        return True
+    # Only allow soft match when one side is unknown — never LF↔EA
+    if na == "unit" or nb == "unit":
+        return True
+    return False
+
+
 def _match_line(
     lines: list[BidTemplateLine],
     *,
@@ -345,41 +370,50 @@ def _match_line(
     desc = description.lower().strip()
     unit_n = normalize_unit(unit)
     desc_tokens = _token_set(desc)
+    desc_size = _size_token(description)
 
     if csi_code:
         for line in lines:
             if line.csi_code and normalize_csi_code(line.csi_code) == normalize_csi_code(csi_code):
-                return line, 96.0, "csi_code"
+                if _units_compatible(line.unit, unit_n):
+                    return line, 96.0, "csi_code"
     if item_code:
         code = re.sub(r"\s+", "", item_code.lower().strip())
         for line in lines:
             for candidate in (line.item_code, line.csi_code):
                 if candidate and re.sub(r"\s+", "", candidate.lower().strip()) == code:
-                    return line, 94.0, "item_code"
+                    if _units_compatible(line.unit, unit_n):
+                        return line, 94.0, "item_code"
 
     for line in lines:
-        if line.description.lower().strip() == desc and (
-            normalize_unit(line.unit) == unit_n or unit_n in {"unit", "ea"}
-        ):
+        if line.description.lower().strip() == desc and _units_compatible(line.unit, unit_n):
             return line, 92.0, "exact_description_unit"
 
     for line in lines:
         ld = line.description.lower().strip()
-        if desc and ld and (desc in ld or ld in desc):
-            if normalize_unit(line.unit) == unit_n or unit_n == "unit":
-                return line, 78.0, "fuzzy_description"
+        if desc and ld and (desc in ld or ld in desc) and _units_compatible(line.unit, unit_n):
+            line_size = _size_token(line.description)
+            if desc_size and line_size and desc_size != line_size:
+                continue
+            return line, 82.0, "fuzzy_description"
 
     # Token overlap (e.g. "Aggregate Base Course" ↔ "Aggregate Base Course 3/4\")
     best: BidTemplateLine | None = None
     best_score = 0.0
     for line in lines:
+        if not _units_compatible(line.unit, unit_n):
+            continue
+        line_size = _size_token(line.description)
+        if desc_size and line_size and desc_size != line_size:
+            continue
         line_tokens = _token_set(line.description)
         if not desc_tokens or not line_tokens:
             continue
         overlap = len(desc_tokens & line_tokens) / max(len(desc_tokens), 1)
-        unit_ok = normalize_unit(line.unit) == unit_n or unit_n == "unit"
-        score = overlap * (100.0 if unit_ok else 85.0)
-        if score >= 55 and score > best_score:
+        score = overlap * 100.0
+        if desc_size and line_size and desc_size == line_size:
+            score = min(100.0, score + 12.0)
+        if score >= 65 and score > best_score:
             best = line
             best_score = score
     if best:

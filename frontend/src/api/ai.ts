@@ -1,7 +1,8 @@
 import api from './client'
 import type { AnalysisResult, ChatMessage, ProcessResult } from '@/types'
 
-const ANALYZE_TIMEOUT_MS = 600000 // PDF vision + Autodesk APS DWG can exceed 5 minutes
+// Full PDF page vision runs in batches; large plan sets can take a long time.
+const ANALYZE_TIMEOUT_MS = 1_800_000 // 30 minutes
 
 export async function analyzeDocument(
   documentId: number,

@@ -1,9 +1,20 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.boq import BOQItemStatus, BOQStatus
+
+
+class BOQItemUpdate(BaseModel):
+    """Engineer review edits for a single BOQ line."""
+
+    status: BOQItemStatus | None = None
+    quantity: Decimal | None = Field(default=None, ge=0)
+    description: str | None = Field(default=None, min_length=1, max_length=2000)
+    unit: str | None = Field(default=None, min_length=1, max_length=50)
+    item_code: str | None = None
+    notes: str | None = None
 
 
 class BOQItemOut(BaseModel):

@@ -5,6 +5,9 @@ export type UserRole =
   | 'quantity_surveyor'
   | 'reviewer'
   | 'client'
+  | 'other'
+
+export type SubscriptionPlan = 'starter' | 'professional' | 'business' | 'enterprise'
 
 export type ProjectStatus = 'draft' | 'active' | 'in_review' | 'approved' | 'archived'
 
@@ -15,6 +18,7 @@ export interface User {
   email: string
   full_name: string
   role: UserRole
+  plan: SubscriptionPlan
   is_active: boolean
   created_at: string
 }

@@ -7,18 +7,20 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.routes.projects import _get_accessible_project
 from app.database import get_db
-from app.models.boq import BOQStatus
+from app.models.boq import BOQItemStatus, BOQStatus
 from app.models.document import Document
 from app.models.project import ProjectStatus
 from app.models.user import User
-from app.schemas.boq import BOQOut
+from app.schemas.boq import BOQItemOut, BOQItemUpdate, BOQOut
 from app.services.activity import log_activity
 from app.services.boq_service import (
     export_boq_csv,
     export_boq_excel,
     generate_boq_for_project,
     get_boq,
+    get_boq_item,
     list_project_boqs,
+    update_boq_item,
 )
 from app.services.notifications import notify
 
@@ -114,6 +116,46 @@ def get_boq_detail(
     return BOQOut.model_validate(boq)
 
 
+@router.patch("/items/{item_id}", response_model=BOQItemOut)
+def patch_boq_item(
+    item_id: int,
+    payload: BOQItemUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BOQItemOut:
+    item = get_boq_item(db, item_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="BOQ item not found")
+    boq = get_boq(db, item.boq_id)
+    if not boq:
+        raise HTTPException(status_code=404, detail="BOQ not found")
+    _get_accessible_project(db, boq.project_id, current_user)
+
+    if payload.status is not None and payload.status not in set(BOQItemStatus):
+        raise HTTPException(status_code=400, detail="Invalid item status")
+
+    updated = update_boq_item(
+        db,
+        item,
+        status=payload.status,
+        quantity=payload.quantity,
+        description=payload.description,
+        unit=payload.unit,
+        item_code=payload.item_code,
+        review_note=payload.notes,
+    )
+    log_activity(
+        db,
+        user_id=current_user.id,
+        project_id=boq.project_id,
+        action="boq_item_updated",
+        message=f"Updated BOQ item {updated.item_number}: {updated.description[:80]}",
+        entity_type="boq_item",
+        entity_id=updated.id,
+    )
+    return BOQItemOut.model_validate(updated)
+
+
 @router.get("/{boq_id}/export/excel")
 def download_boq_excel(
     boq_id: int,
@@ -149,8 +191,11 @@ def download_boq_csv(
     filename = f"AutoVAD_BOQ_v{boq.version}_{boq.project_id}.csv"
     return Response(
         content=content,
-        media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-store",
+        },
     )
 
 

@@ -1,7 +1,7 @@
 """USA CSI MasterFormat mapping for civil / roadway BOQ items.
 
 Maps common civil descriptions to Division 31/32/33 (and related) CSI codes.
-Also normalizes units used in USA highway takeoffs.
+Also normalizes units used in USA highway takeoffs and assigns EOQ groups.
 """
 
 from __future__ import annotations
@@ -9,48 +9,50 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.boq_groups import assign_group_category
 
 # keywords (lower) → (csi_code, default_category, preferred_unit_hint or None)
 CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
     # Division 02 – Existing Conditions
-    (["demolition", "remove pavement", "sawcut"], "02 41 13", "Demolition", None),
-    (["clearing", "grubbing"], "31 11 00", "Site Clearing", "acre"),
+    (["demolition", "remove pavement", "sawcut", "remove "], "02 41 13", "Removals", None),
+    (["clearing", "grubbing"], "31 11 00", "Clearing & Grubbing", "acre"),
     # Division 31 – Earthwork
-    (["earthwork cut", "excavation", "cut to fill", "roadway excavation"], "31 23 16", "Earthwork", "m3"),
-    (["earthwork fill", "embankment", "borrow", "fill"], "31 23 23", "Earthwork", "m3"),
-    (["subgrade", "proof roll"], "31 22 13", "Earthwork", "m2"),
-    (["geotextile", "geogrid", "stabilization fabric"], "31 05 19", "Earthwork", "m2"),
+    (["earthwork cut", "excavation", "cut to fill", "roadway excavation", "unclassified"], "31 23 16", "Grading", "cy"),
+    (["earthwork fill", "embankment", "borrow", "fill"], "31 23 23", "Grading", "cy"),
+    (["subgrade", "proof roll", "topsoil"], "31 22 13", "Grading", "sy"),
+    (["geotextile", "geogrid", "stabilization fabric", "trench stabilization"], "31 05 19", "Grading", "sy"),
     # Division 32 – Exterior Improvements / Pavement
-    (["gsb", "granular sub base", "granular subbase", "subbase"], "32 11 23", "Pavement", "m3"),
-    (["wmm", "wet mix macadam", "aggregate base", "crushed aggregate base", "cab"], "32 11 23", "Pavement", "m3"),
-    (["dbm", "dense bituminous", "bituminous base"], "32 12 16", "Pavement", "m3"),
-    (["bituminous concrete", "asphalt concrete", "hma", "hot mix", "ac paving", "bc "], "32 12 16", "Pavement", "m3"),
-    (["asphalt", "paving", "pavement"], "32 12 16", "Pavement", "m3"),
-    (["prime coat", "tack coat"], "32 12 13", "Pavement", "m2"),
-    (["concrete pavement", "pcc pavement", "rigid pavement"], "32 13 13", "Pavement", "m3"),
-    (["kerb", "curb", "curbing", "kerbing"], "32 16 13", "Roadside", "m"),
-    (["sidewalk", "footpath", "walkway", "pedestrian"], "32 16 23", "Roadside", "m2"),
-    (["driveway"], "32 16 13", "Roadside", "m2"),
-    (["guardrail", "barrier", "guiderail"], "32 17 23", "Roadside", "m"),
-    (["fence", "fencing"], "32 31 13", "Roadside", "m"),
-    (["road marking", "pavement marking", "striping", "thermoplastic"], "32 17 23", "Markings", "m"),
-    (["traffic sign", "road sign", "signage"], "10 14 53", "Traffic", "nos"),
-    (["signal", "traffic signal"], "34 41 13", "Traffic", "nos"),
-    (["landscaping", "sodding", "seeding", "turf"], "32 92 00", "Landscaping", "m2"),
+    (["gsb", "granular sub base", "granular subbase", "subbase"], "32 11 23", "Surfacing", "cy"),
+    (["wmm", "wet mix macadam", "aggregate base", "crushed aggregate base", "cab"], "32 11 23", "Surfacing", "cy"),
+    (["dbm", "dense bituminous", "bituminous base"], "32 12 16", "Surfacing", "ton"),
+    (["bituminous concrete", "asphalt concrete", "hma", "hot mix", "ac paving", "bc "], "32 12 16", "Surfacing", "ton"),
+    (["asphalt", "paving", "pavement"], "32 12 16", "Surfacing", "ton"),
+    (["prime coat", "tack coat"], "32 12 13", "Surfacing", "sy"),
+    (["concrete pavement", "pcc pavement", "rigid pavement"], "32 13 13", "Surfacing", "sy"),
+    (["kerb", "curb", "curbing", "kerbing", "gutter"], "32 16 13", "Curb, Gutter & Sidewalk", "lf"),
+    (["sidewalk", "footpath", "walkway", "pedestrian", "driveway"], "32 16 23", "Curb, Gutter & Sidewalk", "sf"),
+    (["guardrail", "barrier", "guiderail"], "32 17 23", "Miscellaneous", "lf"),
+    (["fence", "fencing"], "32 31 13", "Miscellaneous", "lf"),
+    (["road marking", "pavement marking", "striping", "thermoplastic"], "32 17 23", "Traffic Signals & Signing", "lf"),
+    (["traffic sign", "road sign", "signage"], "10 14 53", "Traffic Signals & Signing", "ea"),
+    (["signal", "traffic signal"], "34 41 13", "Traffic Signals & Signing", "ea"),
+    (["landscaping", "sodding", "seeding", "turf", "fertiliz", "mulch", "erosion", "silt fence"], "32 92 00", "Erosion Control / Restoration", "sy"),
+    (["mobilization", "traffic control"], "01 71 13", "General / Traffic Control", "ls"),
     # Division 33 – Utilities / Drainage
-    (["culvert", "box culvert"], "33 42 13", "Drainage", "nos"),
-    (["storm drain", "storm sewer", "drainage pipe", "drain pipe"], "33 41 00", "Drainage", "m"),
-    (["drain", "drainage"], "33 40 00", "Drainage", "m"),
-    (["manhole", "catch basin", "inlet", "junction box"], "33 05 61", "Drainage", "nos"),
-    (["pipe", "sewer"], "33 31 00", "Utilities", "m"),
-    (["water main", "waterline"], "33 11 00", "Utilities", "m"),
+    (["culvert", "box culvert"], "33 42 13", "Storm Sewer", "ea"),
+    (["storm drain", "storm sewer", "drainage pipe", "drain pipe", "catch basin", "inlet"], "33 41 00", "Storm Sewer", "lf"),
+    (["sanitary sewer", "sanitary pipe", "force main", "forcemain"], "33 31 00", "Sanitary Sewer", "lf"),
+    (["sanitary manhole", "ssmh"], "33 05 61", "Sanitary Sewer", "ea"),
+    (["manhole", "junction box", "headwall"], "33 05 61", "Storm Sewer", "ea"),
+    (["watermain", "water main", "waterline", "hydrant", "gate valve"], "33 11 00", "Watermain", "lf"),
+    (["pipe", "sewer"], "33 31 00", "Sanitary Sewer", "lf"),
     # Structures / Concrete
-    (["reinforced concrete", "rcc", "structural concrete"], "03 30 00", "Structures", "m3"),
-    (["concrete"], "03 30 00", "Structures", "m3"),
-    (["rebar", "reinforcement", "steel reinforcement"], "03 20 00", "Structures", "kg"),
-    (["formwork"], "03 11 00", "Structures", "m2"),
-    # Geometry / reference (still coded for BOQ completeness)
-    (["road width", "carriageway", "alignment", "centerline"], "01 71 23", "Geometry", "m"),
+    (["reinforced concrete", "rcc", "structural concrete", "retaining wall"], "03 30 00", "Structures", "cy"),
+    (["concrete"], "03 30 00", "Structures", "cy"),
+    (["rebar", "reinforcement", "steel reinforcement"], "03 20 00", "Structures", "lb"),
+    (["formwork"], "03 11 00", "Structures", "sf"),
+    # Geometry / reference
+    (["road width", "carriageway", "alignment", "centerline"], "01 71 23", "Miscellaneous", "lf"),
 ]
 
 CSI_CODE_RE = re.compile(r"\b(\d{2})\s*[-\s]?\s*(\d{2})\s*[-\s]?\s*(\d{2})(?:\.\d+)?\b")
@@ -81,13 +83,9 @@ UNIT_ALIASES = {
     "sq.yd.": "sy",
     "square yard": "sy",
     "square yards": "sy",
-    "cy": "cy",
-    "cu.yd": "cy",
     "cuyd": "cy",
     "cu yd": "cy",
     "cu.yd.": "cy",
-    "cubic yard": "cy",
-    "cubic yards": "cy",
     "sf": "sf",
     "sqft": "sf",
     "sq ft": "sf",
@@ -179,12 +177,11 @@ def map_csi(
                 "csi_code": csi,
                 "item_code": existing_code or csi,
                 "category": category or cat,
-                "unit": unit_n if unit else (unit_hint or unit_n),
+                "unit": unit_n if unit else (normalize_unit(unit_hint) if unit_hint else unit_n),
                 "csi_match": "mapped",
                 "csi_confidence": 90.0,
             }
 
-    # Fallback: keep existing client code if any; else unmapped civil misc
     return {
         "csi_code": None,
         "item_code": existing_code,
@@ -196,7 +193,7 @@ def map_csi(
 
 
 def enrich_quantity_item(item: dict[str, Any]) -> dict[str, Any]:
-    """Attach CSI code / normalized unit onto a quantity dict (mutates copy)."""
+    """Attach CSI code / normalized unit / EOQ group onto a quantity dict."""
     out = dict(item)
     mapped = map_csi(
         description=str(out.get("description") or ""),
@@ -207,13 +204,11 @@ def enrich_quantity_item(item: dict[str, Any]) -> dict[str, Any]:
     out["unit"] = mapped["unit"]
     out["category"] = mapped["category"]
     out["csi_code"] = mapped["csi_code"]
-    # Prefer CSI as item_code when we mapped one and no prior client code
     if mapped["csi_code"] and (not out.get("item_code") or mapped["csi_match"] == "mapped"):
         if not looks_like_csi(out.get("item_code")):
             out["item_code"] = mapped["csi_code"]
     elif mapped["item_code"]:
         out["item_code"] = mapped["item_code"]
-    # Boost confidence slightly when CSI mapped
     try:
         conf = float(out.get("confidence") or 0)
     except (TypeError, ValueError):
@@ -221,7 +216,7 @@ def enrich_quantity_item(item: dict[str, Any]) -> dict[str, Any]:
     if mapped["csi_match"] in {"provided", "mapped"} and conf < 95:
         out["confidence"] = min(95.0, max(conf, mapped["csi_confidence"] - 5))
     out["csi_match"] = mapped["csi_match"]
-    return out
+    return assign_group_category(out)
 
 
 def list_csi_catalog() -> list[dict[str, str]]:

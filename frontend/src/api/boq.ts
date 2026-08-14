@@ -42,3 +42,18 @@ export async function updateBoqApproval(boqId: number, action: 'submit' | 'appro
   const { data } = await api.post(`/boq/${boqId}/approval`, { action, note })
   return data as import('@/types').BOQ
 }
+
+export async function updateBoqItem(
+  itemId: number,
+  payload: {
+    status?: string
+    quantity?: number
+    description?: string
+    unit?: string
+    item_code?: string | null
+    notes?: string
+  },
+): Promise<import('@/types').BOQItem> {
+  const { data } = await api.patch<import('@/types').BOQItem>(`/boq/items/${itemId}`, payload)
+  return data
+}

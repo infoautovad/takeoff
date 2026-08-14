@@ -74,3 +74,11 @@ export function standardBidItemNumber(item: {
   if (item.bid_template_line_id && item.item_code) return item.item_code
   return ''
 }
+
+export function isUnmappedBoqItem(item: {
+  bid_template_line_id?: number | null
+  category?: string | null
+}): boolean {
+  if (item.bid_template_line_id) return false
+  return String(item.category || '').toLowerCase() === 'unmapped takeoff'
+}

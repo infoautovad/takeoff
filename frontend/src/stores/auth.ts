@@ -33,7 +33,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  async function register(payload: { email: string; full_name: string; password: string; role?: string }) {
+  async function register(payload: {
+    email: string
+    full_name: string
+    password: string
+    confirm_password: string
+    role: string
+    plan: string
+  }) {
     loading.value = true
     error.value = null
     try {
@@ -68,8 +75,18 @@ export const useAuthStore = defineStore('auth', () => {
 
 function extractError(err: unknown, fallback: string): string {
   if (typeof err === 'object' && err && 'response' in err) {
-    const response = (err as { response?: { data?: { detail?: string } } }).response
-    if (response?.data?.detail) return response.data.detail
+    const detail = (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      const msgs = detail
+        .map((d) => {
+          if (typeof d === 'string') return d
+          if (d && typeof d === 'object' && 'msg' in d) return String((d as { msg: string }).msg)
+          return ''
+        })
+        .filter(Boolean)
+      if (msgs.length) return msgs.join(' ')
+    }
   }
   return fallback
 }

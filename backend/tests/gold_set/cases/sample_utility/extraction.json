@@ -1,0 +1,48 @@
+{
+  "format": "synthetic",
+  "engine": "gold_set",
+  "units": "ft",
+  "pipes": [
+    {
+      "name": "WM-8",
+      "layer": "P_WATER",
+      "length": 500,
+      "diameter": 8,
+      "network": "water",
+      "description": "8 inch water main"
+    },
+    {
+      "name": "WM-12",
+      "layer": "P_WATER",
+      "length": 200,
+      "part_size": "12\"",
+      "network": "water"
+    },
+    {
+      "name": "SS-8",
+      "layer": "P_SAN",
+      "length": 150,
+      "diameter": 8,
+      "network": "sanitary"
+    }
+  ],
+  "blocks": [
+    {"name": "GATE_VALVE_8", "layer": "E_WATER", "type": "valve"},
+    {"name": "GV-8IN", "layer": "P_WATER", "type": "valve"},
+    {"name": "FH-1", "layer": "E_WATER", "type": "hydrant"},
+    {"name": "SSMH-1", "layer": "P_SAN", "type": "sanitary manhole"},
+    {"name": "SSMH-2", "layer": "SANITARY", "type": "manhole"}
+  ],
+  "surfaces": [
+    {"name": "EG-FG", "cut": 1200, "fill": 800}
+  ],
+  "lines": [],
+  "polylines": [],
+  "hatches": [],
+  "alignments": [],
+  "volumes": [],
+  "texts": [
+    {"layer": "P_WATER", "text": "8\" WM"},
+    {"layer": "P_WATER", "text": "12\" WATER MAIN"}
+  ]
+}

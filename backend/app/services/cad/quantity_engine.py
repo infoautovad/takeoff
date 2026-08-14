@@ -71,6 +71,83 @@ def _is_noise_name(name: str) -> bool:
     return any(bit in low for bit in _NOISE_NAME_BITS)
 
 
+def _is_paper_space(entity: dict[str, Any]) -> bool:
+    space = str(entity.get("space") or entity.get("layout") or "").lower()
+    layer = str(entity.get("layer") or "").lower()
+    return "paper" in space or layer.startswith("ps") or "paper_space" in layer
+
+
+def _length_scale_to_feet(units: Any) -> float:
+    """Convert drawing length units to feet for LF takeoff."""
+    if units is None:
+        return 1.0
+    raw = str(units).strip().lower()
+    # ezdxf / INSUNITS common values
+    mapping = {
+        "0": 1.0,  # unitless — assume feet for US civil
+        "1": 1.0 / 12.0,  # inches
+        "2": 1.0,  # feet
+        "4": 1.0 / 25.4 / 12.0,  # mm
+        "5": 1.0 / 2.54 / 12.0,  # cm
+        "6": 3.280839895,  # meters
+        "inch": 1.0 / 12.0,
+        "inches": 1.0 / 12.0,
+        "in": 1.0 / 12.0,
+        "ft": 1.0,
+        "feet": 1.0,
+        "foot": 1.0,
+        "mm": 1.0 / 25.4 / 12.0,
+        "cm": 1.0 / 2.54 / 12.0,
+        "m": 3.280839895,
+        "meter": 3.280839895,
+        "meters": 3.280839895,
+        "metre": 3.280839895,
+        "metres": 3.280839895,
+    }
+    if raw in mapping:
+        return mapping[raw]
+    # strings like "InsertionUnits.Feet"
+    for key, scale in mapping.items():
+        if key.isalpha() and key in raw:
+            return scale
+    return 1.0
+
+
+def _size_hints_from_texts(extraction: dict[str, Any]) -> dict[str, str]:
+    """Map layer → most common size label found in TEXT/MTEXT on that layer."""
+    counts: dict[str, dict[str, int]] = {}
+    for text in extraction.get("texts") or []:
+        layer = str(text.get("layer") or "").strip()
+        body = str(text.get("text") or text.get("content") or "")
+        size = extract_size_label(body, layer)
+        if not layer or not size:
+            continue
+        bucket = counts.setdefault(layer.lower(), {})
+        bucket[size] = bucket.get(size, 0) + 1
+    # Also scan dimension text-like measurement if present as inches
+    for dim in extraction.get("dimensions") or []:
+        layer = str(dim.get("layer") or "").strip()
+        measurement = dim.get("measurement")
+        size = extract_size_label(measurement, layer, dim.get("text"))
+        if not layer or not size:
+            continue
+        # Only trust small civil pipe diameters from dimensions
+        try:
+            inches = float(re.sub(r"[^0-9.]", "", size.split("-")[0]))
+        except ValueError:
+            continue
+        if inches < 1 or inches > 72:
+            continue
+        bucket = counts.setdefault(layer.lower(), {})
+        bucket[size] = bucket.get(size, 0) + 1
+
+    out: dict[str, str] = {}
+    for layer, bucket in counts.items():
+        best = max(bucket.items(), key=lambda kv: kv[1])
+        out[layer] = best[0]
+    return out
+
+
 def extract_size_label(*parts: Any) -> str | None:
     """Return normalized size like '8-Inch' from layer/name/props text."""
     text = " ".join(str(p) for p in parts if p)
@@ -91,6 +168,12 @@ def extract_size_label(*parts: Any) -> str | None:
             pass
 
     # Prefer patterns near pipe/water keywords
+    low_all = text.lower()
+    # Structure tags like SSMH-2 / CB-12 are indices, not diameters (unless "12\"")
+    structure_index = bool(
+        re.search(r"\b(?:ssmh|smh|mh|cb|inlet|str|jbox|jh|dmh)[-_ ]?\d+\b", low_all)
+        and not re.search(r"\d+\s*(?:\"|''|in(?:ch)?|mm)\b", low_all)
+    )
     for match in _SIZE_RE.finditer(text):
         raw = match.group(1) or match.group(2)
         if not raw:
@@ -102,11 +185,18 @@ def extract_size_label(*parts: Any) -> str | None:
         # Skip stationing-like numbers and tiny/huge junk
         if val < 1 or val > 120:
             continue
-        # Heuristic: bare numbers only accepted near diameter cues or common pipe sizes
+        matched = match.group(0)
         span = text[max(0, match.start() - 12) : match.end() + 12].lower()
         common = {2, 3, 4, 6, 8, 10, 12, 14, 15, 16, 18, 20, 21, 24, 27, 30, 36, 42, 48, 54, 60}
-        has_cue = any(c in span for c in ('"', "in", "dia", "ø", "dn", "nps", "pipe", "casing"))
-        if val in common or has_cue or abs(val - int(val)) < 0.01 and int(val) in common:
+        has_unit = bool(re.search(r"[\"'']|in(?:ch(?:es)?)?|mm", matched, re.I))
+        has_cue = any(c in span for c in ('"', "in", "dia", "ø", "dn", "nps", "pipe", "casing", "wm"))
+        civil_context = any(
+            c in low_all
+            for c in ("pipe", "water", "main", "sewer", "storm", "valve", "hydrant", "casing", "ductile", "pvc", "wm")
+        )
+        if structure_index and not has_unit and not has_cue:
+            continue
+        if has_unit or has_cue or (val in common and civil_context):
             if abs(val - int(val)) < 0.01:
                 return f"{int(val)}-Inch"
             return f"{val:g}-Inch"
@@ -186,6 +276,8 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
     area_by_key: dict[str, dict[str, Any]] = {}
     count_by_key: dict[str, dict[str, Any]] = {}
     volume_by_key: dict[str, dict[str, Any]] = {}
+    length_scale = _length_scale_to_feet(extraction.get("units"))
+    size_by_layer = _size_hints_from_texts(extraction)
 
     def add_length(
         *,
@@ -198,11 +290,14 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
         confidence: float = 88.0,
         size: str | None = None,
     ):
-        if quantity <= 0 or _is_noise_layer(layer) and "pipe" not in description.lower():
-            if quantity <= 0:
-                return
+        if quantity <= 0:
+            return
+        if _is_noise_layer(layer) and "pipe" not in description.lower():
+            return
+        scaled = float(quantity) * length_scale
         unit = "LF"
-        key = f"{description.lower()}|{unit}|{(size or '').lower()}|{layer.lower()}"
+        # Aggregate by description+size+unit (not layer) so LINE/POLYLINE/PIPE merge
+        key = f"{description.lower()}|{unit}|{(size or '').lower()}"
         row = length_by_key.setdefault(
             key,
             {
@@ -218,8 +313,10 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
                 "size": size,
             },
         )
-        row["quantity"] += quantity
+        row["quantity"] += scaled
         row["confidence"] = max(float(row["confidence"]), confidence)
+        if size and (not row.get("size")):
+            row["size"] = size
 
     def add_count_item(
         *,
@@ -308,6 +405,8 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
         length = float(pipe.get("length") or 0)
         diameter = pipe.get("diameter") or pipe.get("inner_diameter") or pipe.get("outer_diameter")
         size = extract_size_label(name, layer, diameter, pipe.get("part_size"), pipe.get("description"))
+        if not size:
+            size = size_by_layer.get(layer.lower())
         if not size and pipe.get("radius"):
             try:
                 # radius often in drawing units (ft) → diameter inches if small
@@ -356,10 +455,13 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
 
     # --- Polylines / lines: size-aware by layer/name ---
     for line in extraction.get("lines") or []:
+        if _is_paper_space(line):
+            continue
         layer = str(line.get("layer") or "0")
         length = float(line.get("length") or 0)
-        size = extract_size_label(layer, line.get("name"))
+        size = extract_size_label(layer, line.get("name")) or size_by_layer.get(layer.lower())
         network = detect_network(layer, line.get("name"))
+        # Require network or size or explicit pipe-ish layer — avoid random linework
         if network or size or any(k in layer.lower() for k in ("pipe", "water", "sewer", "storm", "san", "casing")):
             desc, cat = _pipe_description(network, size, layer)
             add_length(
@@ -369,14 +471,16 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
                 layer=layer,
                 entity_type="LINE",
                 method=f"Sum of LINE lengths on layer '{layer}'",
-                confidence=86.0 if size else 80.0,
+                confidence=86.0 if size and network else 80.0 if size or network else 74.0,
                 size=size,
             )
 
     for pl in extraction.get("polylines") or []:
+        if _is_paper_space(pl):
+            continue
         layer = str(pl.get("layer") or "0")
         length = float(pl.get("length") or 0)
-        size = extract_size_label(layer, pl.get("name"))
+        size = extract_size_label(layer, pl.get("name")) or size_by_layer.get(layer.lower())
         network = detect_network(layer, pl.get("name"))
         if network or size or any(
             k in layer.lower() for k in ("pipe", "water", "sewer", "storm", "san", "casing", "main")
@@ -389,23 +493,27 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
                 layer=layer,
                 entity_type="POLYLINE",
                 method=f"Sum of POLYLINE lengths on layer '{layer}'",
-                confidence=87.0 if size else 81.0,
+                confidence=87.0 if size and network else 81.0 if size or network else 75.0,
                 size=size,
             )
         if pl.get("area"):
-            add_area(layer, float(pl.get("area") or 0), "POLYLINE")
+            add_area(layer, float(pl.get("area") or 0) * (length_scale**2), "POLYLINE")
 
     for hatch in extraction.get("hatches") or []:
         add_area(str(hatch.get("layer") or "0"), float(hatch.get("area") or 0), "HATCH")
 
     # --- Blocks / inserts: fittings + structures (do not lump) ---
     for block in extraction.get("blocks") or []:
+        if _is_paper_space(block):
+            continue
         name = str(block.get("name") or "BLOCK")
         layer = str(block.get("layer") or "")
         btype = str(block.get("type") or "")
         if _is_noise_name(name):
             continue
         size = extract_size_label(name, layer, block.get("size"), block.get("description"), btype)
+        if not size:
+            size = size_by_layer.get(layer.lower())
         network = detect_network(name, layer, btype)
         classified = classify_fitting(name, layer) or classify_fitting(name, btype)
         if classified:
@@ -511,6 +619,12 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
             add_volume(description="Earthwork Cut", quantity=q, method=vol.get("method") or "Volume property")
         elif "fill" in kind:
             add_volume(description="Earthwork Fill", quantity=q, method=vol.get("method") or "Volume property")
+        elif "net" in kind:
+            add_volume(
+                description="Earthwork Net Volume (verify cut/fill)",
+                quantity=abs(q),
+                method=vol.get("method") or "Volume property (net)",
+            )
 
     # Merge pipe length rows that are identical after size detection from text near layers
     items: list[dict[str, Any]] = []
@@ -527,8 +641,8 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
             continue
         items.append(enrich_quantity_item(row))
 
-    # Prefer specific sized pipes over a parallel "Unidentified" dump on same network
     items = _dedupe_prefer_sized(items)
+    items = _collapse_count_duplicates(items)
     return items[:300]
 
 
@@ -552,9 +666,47 @@ def _dedupe_prefer_sized(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for i in items:
         d = (i.get("description") or "").lower()
-        if "unidentified" in d:
-            if has_sized["water"] and "water" not in d and "utility pipe" in d:
+        if "unidentified" in d or d == "utility pipe, type and size unidentified":
+            if has_sized["water"] and ("water" in d or "utility pipe" in d):
+                # Drop bare unidentified when sized water exists
+                if "water" not in d or "-inch" not in d:
+                    if has_sized["water"] and "utility pipe" in d:
+                        continue
+            if has_sized["sanitary"] and "sanitary" in d and "-inch" not in d:
                 continue
-            # keep unidentified only if no sized alternative for that network
+            if has_sized["storm"] and "storm" in d and "-inch" not in d:
+                continue
+            if all(has_sized.values()) and "unidentified" in d:
+                continue
         out.append(i)
     return out
+
+
+def _collapse_count_duplicates(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Merge EA rows that differ only by block name but share description+size+unit."""
+    merged: dict[str, dict[str, Any]] = {}
+    passthrough: list[dict[str, Any]] = []
+    for item in items:
+        unit = str(item.get("unit") or "").upper()
+        if unit != "EA":
+            passthrough.append(item)
+            continue
+        key = (
+            f"{(item.get('description') or '').strip().lower()}|"
+            f"{unit}|{(item.get('size') or '')}".lower()
+        )
+        if key not in merged:
+            merged[key] = dict(item)
+            continue
+        try:
+            merged[key]["quantity"] = round(
+                float(merged[key].get("quantity") or 0) + float(item.get("quantity") or 0),
+                2,
+            )
+            merged[key]["confidence"] = max(
+                float(merged[key].get("confidence") or 0),
+                float(item.get("confidence") or 0),
+            )
+        except (TypeError, ValueError):
+            passthrough.append(item)
+    return passthrough + list(merged.values())

@@ -65,6 +65,8 @@ def process_document(db: Session, document: Document) -> DocumentAnalysis:
         }
         if result.get("vision_pages"):
             findings["vision_pages"] = result["vision_pages"]
+        if result.get("vision_coverage"):
+            findings["vision_coverage"] = result["vision_coverage"]
         if result.get("notes"):
             findings["notes"] = result["notes"]
 

@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectsStore } from '@/stores/projects'
 import { downloadDocument } from '@/api/documents'
 import { analyzeDocument, analyzeProject, askChat, intelligenceStatus, listAnalyses, listChat, type IntelligenceStatus } from '@/api/ai'
-import { downloadBoqCsv, downloadBoqExcel, generateBoq, listBoqs, updateBoqApproval } from '@/api/boq'
+import { downloadBoqCsv, downloadBoqExcel, generateBoq, listBoqs, updateBoqApproval, updateBoqItem } from '@/api/boq'
 import { createEstimate, listEstimates, listSor, uploadSor } from '@/api/cost'
 import { compareBoqs, compareDrawings, listComparisons } from '@/api/compare'
 import { generateReports, listReports } from '@/api/reports'
@@ -28,16 +28,18 @@ import {
   type BidMapResult,
   type BidTemplate,
 } from '@/api/bid'
-import type { AnalysisResult, BOQ, ChatMessage } from '@/types'
+import type { AnalysisResult, BOQ, BOQItem, ChatMessage } from '@/types'
 import {
   boqItemStatusColor,
   boqItemStatusLabel,
   formatBytes,
   formatDate,
   formatQty,
+  isUnmappedBoqItem,
   standardBidItemNumber,
   statusColor,
 } from '@/utils/format'
+import { groupBoqItems } from '@/utils/boqGroups'
 
 const route = useRoute()
 const router = useRouter()
@@ -93,6 +95,27 @@ const boqLoading = ref(false)
 const boqSourceDocId = ref<number | null>(null)
 const boqError = ref<string | null>(null)
 const boqScopeDocIds = ref<number[]>([])
+const boqFilter = ref<'all' | 'review' | 'verified' | 'unmapped'>('all')
+const boqItemSaving = ref<number | null>(null)
+
+const filteredBoqItems = computed(() => {
+  const items = activeBoq.value?.items || []
+  if (boqFilter.value === 'all') return items
+  if (boqFilter.value === 'unmapped') return items.filter((i) => isUnmappedBoqItem(i))
+  if (boqFilter.value === 'verified') {
+    return items.filter((i) => boqItemStatusLabel(i) === 'Verified')
+  }
+  return items.filter((i) => boqItemStatusLabel(i) === 'Engineer Review')
+})
+
+const groupedBoqSections = computed(() => groupBoqItems(filteredBoqItems.value))
+
+const boqReviewCount = computed(
+  () => (activeBoq.value?.items || []).filter((i) => boqItemStatusLabel(i) === 'Engineer Review').length,
+)
+const boqUnmappedCount = computed(
+  () => (activeBoq.value?.items || []).filter((i) => isUnmappedBoqItem(i)).length,
+)
 const chatMessages = ref<ChatMessage[]>([])
 const chatInput = ref('')
 const chatLoading = ref(false)
@@ -586,6 +609,44 @@ function openSource(item: { source_document_id: number | null; source_page: numb
     query: { page: String(item.source_page || 1) },
   })
 }
+
+function sourceLabel(item: BOQItem): string {
+  if (item.source_reference) return item.source_reference
+  if (item.source_document_id) {
+    return item.source_page ? `Doc #${item.source_document_id} p.${item.source_page}` : `Doc #${item.source_document_id}`
+  }
+  return '—'
+}
+
+async function verifyBoqItem(item: BOQItem) {
+  if (!activeBoq.value) return
+  boqItemSaving.value = item.id
+  boqError.value = null
+  try {
+    const updated = await updateBoqItem(item.id, { status: 'verified' })
+    const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
+    if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
+  } catch (err) {
+    boqError.value = extractDetail(err, 'Could not verify BOQ item')
+  } finally {
+    boqItemSaving.value = null
+  }
+}
+
+async function markBoqItemReview(item: BOQItem) {
+  if (!activeBoq.value) return
+  boqItemSaving.value = item.id
+  boqError.value = null
+  try {
+    const updated = await updateBoqItem(item.id, { status: 'needs_review' })
+    const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
+    if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
+  } catch (err) {
+    boqError.value = extractDetail(err, 'Could not update BOQ item')
+  } finally {
+    boqItemSaving.value = null
+  }
+}
 async function sendChat(question?: string) {
   const q = (question ?? chatInput.value).trim()
   if (!q) return
@@ -993,10 +1054,10 @@ const cadDocuments = computed(() =>
           <div class="surface-panel pa-5">
             <div class="d-flex flex-wrap justify-space-between ga-3 mb-4">
               <div>
-                <h2 class="brand-font text-h6 mb-1">Bill of Quantities</h2>
+                <h2 class="brand-font text-h6 mb-1">Estimate of Quantities</h2>
                 <p class="muted text-body-2 mb-0">
-                  Generate from all analyzed files, or select specific files below for a per-file BOQ.
-                  With a bid template, only needed bid items are matched — not the full list.
+                  Items are grouped like a municipal bid schedule (Removals, Grading, Watermain, Sanitary Sewer, …).
+                  Excel download uses the same section layout.
                 </p>
               </div>
               <div class="d-flex flex-wrap ga-2">
@@ -1045,46 +1106,125 @@ const cadDocuments = computed(() =>
             </div>
             <div v-if="!activeBoq" class="muted text-center py-10">Analyze documents / process CAD, then generate BOQ.</div>
             <template v-else>
-              <div class="d-flex flex-wrap ga-2 mb-3">
+              <div class="d-flex flex-wrap ga-2 mb-3 align-center">
                 <v-chip size="small" variant="tonal">{{ activeBoq.title }}</v-chip>
                 <v-chip size="small" variant="tonal">{{ activeBoq.status }}</v-chip>
+                <v-chip size="small" color="error" variant="tonal">
+                  {{ boqReviewCount }} need review
+                </v-chip>
+                <v-chip v-if="boqUnmappedCount" size="small" color="warning" variant="tonal">
+                  {{ boqUnmappedCount }} unmapped
+                </v-chip>
                 <v-chip v-if="bidMapResult" size="small" color="success" variant="tonal">
                   Bid mapped {{ bidMapResult.matched }}/{{ bidMapResult.total }}
                 </v-chip>
+                <v-btn-toggle v-model="boqFilter" mandatory density="compact" class="ms-auto" variant="outlined" divided>
+                  <v-btn value="all" size="small">All</v-btn>
+                  <v-btn value="review" size="small">Engineer Review</v-btn>
+                  <v-btn value="verified" size="small">Verified</v-btn>
+                  <v-btn value="unmapped" size="small">Unmapped</v-btn>
+                </v-btn-toggle>
               </div>
-              <v-table density="comfortable" class="boq-table">
+              <v-table density="comfortable" class="boq-table eoq-table">
                 <thead>
                   <tr>
-                    <th>Item No</th>
-                    <th>Standard Bid Item Number</th>
+                    <th>Item No.</th>
+                    <th>Std Bid No.</th>
                     <th>Item Description</th>
                     <th>Unit</th>
-                    <th>Quantity</th>
+                    <th>Approx. Quantity</th>
                     <th>AI Confidence</th>
+                    <th>Bid match</th>
+                    <th>Source</th>
                     <th>Status</th>
+                    <th>Review</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="item in activeBoq.items" :key="item.id">
-                    <td>{{ item.item_number }}</td>
-                    <td class="text-caption font-weight-medium">
-                      {{ standardBidItemNumber(item) || '—' }}
-                    </td>
-                    <td>
-                      <div class="font-weight-medium">{{ item.description }}</div>
-                    </td>
-                    <td class="text-uppercase">{{ (item.unit || 'UNIT').toUpperCase() }}</td>
-                    <td>{{ formatQty(item.quantity) }}</td>
-                    <td>{{ item.confidence != null ? `${Number(item.confidence).toFixed(2)}%` : '—' }}</td>
-                    <td>
-                      <v-chip
-                        size="small"
-                        variant="tonal"
-                        :color="boqItemStatusColor(item)"
-                      >
-                        {{ boqItemStatusLabel(item) }}
-                      </v-chip>
-                    </td>
+                  <template v-for="section in groupedBoqSections" :key="section.group">
+                    <tr class="boq-section-row">
+                      <td colspan="10">
+                        <span class="boq-section-title">{{ section.group }}</span>
+                        <span class="boq-section-count">{{ section.items.length }} item{{ section.items.length === 1 ? '' : 's' }}</span>
+                      </td>
+                    </tr>
+                    <tr v-for="item in section.items" :key="item.id" class="boq-item-row">
+                      <td class="text-center">{{ item.display_number }}</td>
+                      <td class="text-caption font-weight-medium text-center">
+                        {{ standardBidItemNumber(item) || '—' }}
+                      </td>
+                      <td>
+                        <div class="font-weight-medium">{{ item.description }}</div>
+                        <div v-if="item.calculation_method" class="text-caption muted text-truncate" style="max-width: 280px">
+                          {{ item.calculation_method }}
+                        </div>
+                        <v-chip
+                          v-if="isUnmappedBoqItem(item)"
+                          size="x-small"
+                          color="warning"
+                          variant="tonal"
+                          class="mt-1"
+                        >
+                          Unmapped takeoff
+                        </v-chip>
+                      </td>
+                      <td class="text-uppercase text-center">{{ (item.unit || 'UNIT').toUpperCase() }}</td>
+                      <td class="text-right">{{ formatQty(item.quantity) }}</td>
+                      <td>{{ item.confidence != null ? `${Number(item.confidence).toFixed(2)}%` : '—' }}</td>
+                      <td class="text-caption">
+                        {{
+                          item.bid_match_confidence != null
+                            ? `${Number(item.bid_match_confidence).toFixed(0)}%`
+                            : '—'
+                        }}
+                      </td>
+                      <td>
+                        <button
+                          v-if="item.source_document_id"
+                          type="button"
+                          class="source-link text-caption"
+                          @click="openSource(item)"
+                        >
+                          {{ sourceLabel(item) }}
+                        </button>
+                        <span v-else class="text-caption muted">{{ sourceLabel(item) }}</span>
+                      </td>
+                      <td>
+                        <v-chip
+                          size="small"
+                          variant="tonal"
+                          :color="boqItemStatusColor(item)"
+                        >
+                          {{ boqItemStatusLabel(item) }}
+                        </v-chip>
+                      </td>
+                      <td>
+                        <div class="d-flex flex-wrap ga-1">
+                          <v-btn
+                            v-if="boqItemStatusLabel(item) !== 'Verified'"
+                            size="x-small"
+                            color="success"
+                            variant="tonal"
+                            :loading="boqItemSaving === item.id"
+                            @click="verifyBoqItem(item)"
+                          >
+                            Verify
+                          </v-btn>
+                          <v-btn
+                            v-else
+                            size="x-small"
+                            variant="tonal"
+                            :loading="boqItemSaving === item.id"
+                            @click="markBoqItemReview(item)"
+                          >
+                            Re-review
+                          </v-btn>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                  <tr v-if="!groupedBoqSections.length">
+                    <td colspan="10" class="text-center muted py-6">No items in this filter.</td>
                   </tr>
                 </tbody>
               </v-table>
@@ -1690,5 +1830,66 @@ const cadDocuments = computed(() =>
   font-family: var(--font-mono);
   color: #c9d3cd;
   background: #0a1411;
+}
+
+.source-link {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: var(--acid, #d9ff43);
+  text-decoration: underline;
+  cursor: pointer;
+  text-align: left;
+  max-width: 220px;
+  display: inline-block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-link:hover {
+  opacity: 0.85;
+}
+
+.boq-table td {
+  vertical-align: top;
+}
+
+.eoq-table {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.eoq-table th {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16) !important;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.boq-section-row td {
+  background: rgba(217, 255, 67, 0.1) !important;
+  border-top: 1px solid rgba(217, 255, 67, 0.28);
+  border-bottom: 1px solid rgba(217, 255, 67, 0.18);
+  padding-top: 10px !important;
+  padding-bottom: 10px !important;
+  vertical-align: middle;
+}
+
+.boq-section-title {
+  font-family: var(--font-brand, inherit);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--acid, #d9ff43);
+  letter-spacing: 0.02em;
+}
+
+.boq-section-count {
+  margin-left: 10px;
+  font-size: 0.75rem;
+  color: rgba(201, 211, 205, 0.7);
+}
+
+.boq-item-row td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 </style>

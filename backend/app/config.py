@@ -30,8 +30,17 @@ class Settings(BaseSettings):
     openai_model: str = "gpt-5.6-terra"
     # PDF plan sheets: render drawings for vision takeoff (not text-only)
     openai_pdf_vision_enabled: bool = True
-    openai_vision_max_pages: int = 16
-    openai_vision_dpi: int = 140
+    # Scan every page by default (upload page count is NOT limited by this).
+    openai_vision_scan_all_pages: bool = True
+    # Pages per OpenAI vision request (chunking only — not a document page limit).
+    openai_vision_batch_pages: int = 8
+    # Optional hard ceiling when scan_all is false, or safety stop when >0 with scan_all.
+    # 0 = no ceiling (process the full PDF).
+    openai_vision_max_pages: int = 0
+    openai_vision_dpi: int = 150
+    openai_vision_min_score: float = 18.0
+    # When not scanning all pages, still force-include utility/schedule sheets
+    openai_vision_force_utility_pages: bool = True
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     max_upload_size_mb: int = 200

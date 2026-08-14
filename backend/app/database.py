@@ -80,6 +80,13 @@ def _migrate_sqlite() -> None:
                 for stmt in alters:
                     conn.execute(text(stmt))
 
+    # Subscription plan on users (registration)
+    if _sqlite_table_exists("users"):
+        cols = _sqlite_columns("users")
+        if "plan" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(32) DEFAULT 'starter' NOT NULL"))
+
     if rebuild:
         with engine.begin() as conn:
             for table in rebuild:
