@@ -252,7 +252,7 @@ async function runBidMap() {
     bidError.value = 'Generate a BOQ first, then re-map it to the active bid template.'
     return
   }
-  if (!bidTemplates.length) {
+  if (!bidTemplates.value.length) {
     bidError.value = 'Upload and activate a bid template first.'
     return
   }
@@ -892,7 +892,7 @@ const cadDocuments = computed(() =>
                         color="secondary"
                         variant="tonal"
                         :loading="boqLoading && boqSourceDocId === doc.id"
-                        :disabled="doc.processing_status === 'processing' || doc.processing_status === 'pending'"
+                        :disabled="doc.processing_status === 'processing' || doc.processing_status === 'queued'"
                         @click="runGenerateBoqForDoc(doc.id)"
                       >
                         BOQ
