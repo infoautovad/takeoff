@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { creditsRemaining, creditsRemainingPct } from '@/utils/credits'
 import landingCss from '@/styles/landing/globals.css?inline'
 
 const LANDING_STYLE_ID = 'autovad-landing-css'
@@ -13,6 +14,7 @@ const rows = [
 ]
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthStore()
 
 const inputRef = ref<HTMLInputElement | null>(null)
@@ -27,21 +29,72 @@ const extraCredits = ref('50')
 const contact = reactive({ name: '', email: '', company: '', message: '' })
 const contactStatus = ref('')
 
+const signInOpen = ref(false)
+const signInEmail = ref('')
+const signInPassword = ref('')
+const showSignInPassword = ref(false)
+const pendingRedirect = ref<string | null>(null)
+
 const displayName = computed(() => auth.user?.full_name || auth.user?.email || 'User')
 const avatarInitial = computed(() => displayName.value.trim().charAt(0).toUpperCase() || 'U')
 const creditPreview = computed(() => (Math.max(0, Number(extraCredits.value) || 0) * 0.3).toFixed(2))
+const availableCredits = computed(() => creditsRemaining(auth.user?.plan))
+const creditsPct = computed(() => creditsRemainingPct(auth.user?.plan))
+const accountMenuOpen = ref(false)
+
+function closeAccountMenu() {
+  accountMenuOpen.value = false
+}
+
+function toggleAccountMenu() {
+  accountMenuOpen.value = !accountMenuOpen.value
+}
+
+function goAccountPage(path: string) {
+  closeAccountMenu()
+  router.push(path)
+}
+
+function openSignIn(redirect?: string) {
+  if (auth.isAuthenticated) return
+  pendingRedirect.value = redirect || null
+  auth.error = null
+  signInOpen.value = true
+  closeAccountMenu()
+}
+
+function closeSignIn() {
+  signInOpen.value = false
+  showSignInPassword.value = false
+  auth.error = null
+}
 
 function goLogin(redirect?: string) {
-  if (redirect) {
-    router.push({ name: 'login', query: { redirect } })
-  } else {
-    router.push({ name: 'login' })
+  openSignIn(redirect)
+}
+
+function goCreateAccount() {
+  closeSignIn()
+  router.push({ name: 'register' })
+}
+
+async function submitSignIn() {
+  try {
+    await auth.login(signInEmail.value.trim(), signInPassword.value)
+    pendingRedirect.value = null
+    signInPassword.value = ''
+    closeSignIn()
+    if (route.query.signin || route.query.redirect) {
+      router.replace({ path: '/', query: {} })
+    }
+  } catch {
+    // auth.error already set
   }
 }
 
 function goTakeoffOrLogin() {
   if (!auth.isAuthenticated) {
-    goLogin()
+    openSignIn()
     return
   }
   router.push('/projects')
@@ -49,7 +102,7 @@ function goTakeoffOrLogin() {
 
 function goPricingAction() {
   if (!auth.isAuthenticated) {
-    goLogin('/dashboard')
+    openSignIn()
     return
   }
   router.push('/dashboard')
@@ -59,7 +112,17 @@ function goDashboard() {
   router.push('/dashboard')
 }
 
+function goPricingSection() {
+  document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })
+}
+
+function goBilling() {
+  closeAccountMenu()
+  router.push('/account/billing')
+}
+
 function signOut() {
+  closeAccountMenu()
   auth.logout()
 }
 
@@ -156,13 +219,28 @@ function submitContact() {
 onMounted(() => {
   document.documentElement.classList.add('autovad-landing')
   document.body.classList.add('autovad-landing')
-  if (!document.getElementById(LANDING_STYLE_ID)) {
-    const style = document.createElement('style')
+  let style = document.getElementById(LANDING_STYLE_ID) as HTMLStyleElement | null
+  if (!style) {
+    style = document.createElement('style')
     style.id = LANDING_STYLE_ID
-    style.textContent = landingCss
     document.head.appendChild(style)
   }
+  style.textContent = landingCss
+  if (route.query.signin === '1' || route.query.signin === 'true') {
+    const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : undefined
+    openSignIn(redirect)
+  }
 })
+
+watch(
+  () => route.query.signin,
+  (value) => {
+    if (value === '1' || value === 'true') {
+      const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : undefined
+      openSignIn(redirect)
+    }
+  },
+)
 
 onUnmounted(() => {
   document.documentElement.classList.remove('autovad-landing')
@@ -179,23 +257,76 @@ onUnmounted(() => {
         <span>AUTO<span>VAD</span></span>
       </a>
       <div class="nav-links">
-        <a href="#platform">Platform</a>
-        <a href="#workflow">How it works</a>
-        <a href="#industries">Who it's for</a>
+        <div class="nav-item has-menu">
+          <a href="#platform" class="nav-trigger" aria-haspopup="true">Overview</a>
+          <div class="nav-dropdown" role="menu" aria-label="Overview">
+            <a href="#about" role="menuitem">Why AutoVAD</a>
+            <a href="#industries" role="menuitem">Who is it for</a>
+            <a href="#workflow" role="menuitem">How it works</a>
+            <a href="#platform" role="menuitem">Platform</a>
+          </div>
+        </div>
+        <a href="#about">About us</a>
         <a href="#pricing">Pricing</a>
-        <a href="#about">Why AutoVAD</a>
         <a href="#contact">Contact</a>
+        <button
+          v-if="auth.isAuthenticated"
+          type="button"
+          class="nav-cta"
+          @click="goDashboard"
+        >
+          Project Management
+        </button>
       </div>
       <div class="nav-actions">
         <template v-if="auth.isAuthenticated">
-          <a class="account-summary" href="#" title="Go to dashboard" @click.prevent="goDashboard">
-            <span class="account-avatar">{{ avatarInitial }}</span>
-            <span class="account-identity">
-              <small>SIGNED IN AS</small>
-              <b>{{ displayName }}</b>
-            </span>
-          </a>
-          <button type="button" class="text-button account-link" @click="signOut">Sign out</button>
+          <div
+            class="account-menu"
+            :class="{ open: accountMenuOpen }"
+            @keydown.escape="closeAccountMenu"
+          >
+            <button
+              type="button"
+              class="account-summary account-summary-btn"
+              aria-haspopup="menu"
+              :aria-expanded="accountMenuOpen"
+              title="Account menu"
+              @click="toggleAccountMenu"
+            >
+              <span class="account-avatar">{{ avatarInitial }}</span>
+              <span
+                class="credit-summary"
+                role="link"
+                tabindex="0"
+                title="Billing & credits"
+                @click.prevent.stop="goBilling"
+                @keydown.enter.prevent.stop="goBilling"
+              >
+                <small>CREDITS AVAILABLE</small>
+                <b>{{ availableCredits.toLocaleString() }} <i>· {{ creditsPct }}% remaining</i></b>
+                <span class="credit-meter" aria-hidden="true"><i :style="{ width: `${creditsPct}%` }" /></span>
+              </span>
+              <span class="account-identity">
+                <small>SIGNED IN AS</small>
+                <b>{{ displayName }}</b>
+              </span>
+            </button>
+            <div class="account-dropdown" role="menu">
+              <button type="button" role="menuitem" @click="goAccountPage('/account')">Account details</button>
+              <button type="button" role="menuitem" @click="goAccountPage('/account/billing')">Billing & credits</button>
+              <button type="button" role="menuitem" @click="goAccountPage('/account/settings')">Settings</button>
+              <button type="button" role="menuitem" @click="goAccountPage('/account/notifications')">Notifications</button>
+              <hr />
+              <button type="button" role="menuitem" class="danger" @click="signOut">Sign out</button>
+            </div>
+          </div>
+          <button
+            v-if="accountMenuOpen"
+            type="button"
+            class="account-menu-scrim"
+            aria-label="Close account menu"
+            @click="closeAccountMenu"
+          />
         </template>
         <a v-else class="text-button account-link" href="#" @click.prevent="goLogin()">Sign in</a>
       </div>
@@ -685,6 +816,84 @@ onUnmounted(() => {
       <p>More bids. Less counting. AI quantity intelligence for civil construction.</p>
       <span>© 2026 AUTOVAD</span>
     </footer>
+
+    <div
+      class="signin-scrim"
+      :class="{ open: signInOpen }"
+      aria-hidden="true"
+      @click="closeSignIn"
+    />
+    <aside
+      class="signin-drawer"
+      :class="{ open: signInOpen }"
+      aria-label="Sign in"
+      :aria-hidden="!signInOpen"
+    >
+      <div class="signin-tab-edge" aria-hidden="true">SIGN IN</div>
+
+      <div class="signin-drawer-inner">
+        <div class="signin-drawer-head">
+          <div class="signin-brand">
+            <span class="signin-mark" aria-hidden="true"><i /><i /><i /></span>
+            <div>
+              <div class="signin-kicker">AUTO<span>VAD</span> · ACCESS</div>
+              <h2>Welcome back</h2>
+            </div>
+          </div>
+          <button type="button" class="signin-close" aria-label="Close sign in" @click="closeSignIn">×</button>
+        </div>
+
+        <p class="signin-lede">Quick sign in to continue on the homepage. Your workspace stays one click away.</p>
+
+        <form class="signin-form" @submit.prevent="submitSignIn">
+          <div v-if="auth.error" class="signin-error">{{ auth.error }}</div>
+
+          <label>
+            <span>Email</span>
+            <input
+              v-model="signInEmail"
+              type="email"
+              autocomplete="email"
+              required
+              placeholder="you@company.com"
+            />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <div class="signin-password">
+              <input
+                v-model="signInPassword"
+                :type="showSignInPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                required
+                placeholder="Your password"
+              />
+              <button type="button" @click="showSignInPassword = !showSignInPassword">
+                {{ showSignInPassword ? 'Hide' : 'Show' }}
+              </button>
+            </div>
+          </label>
+
+          <button type="submit" class="signin-submit" :disabled="auth.loading">
+            {{ auth.loading ? 'Signing in…' : 'Sign in' }}
+          </button>
+        </form>
+
+        <div class="signin-footer">
+          <div class="signin-footer-copy">
+            <p>New to AutoVAD?</p>
+            <small>Create an account to choose a plan and unlock AI takeoff credits.</small>
+          </div>
+          <button type="button" class="signin-create" @click="goCreateAccount">Create account</button>
+        </div>
+
+        <div class="signin-member-row">
+          <span>Already a member?</span>
+          <strong>Use the form above to sign in.</strong>
+        </div>
+      </div>
+    </aside>
   </main>
 </template>
 

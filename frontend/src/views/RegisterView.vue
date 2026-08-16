@@ -6,7 +6,8 @@ import { useAuthStore } from '@/stores/auth'
 const auth = useAuthStore()
 const router = useRouter()
 
-const fullName = ref('')
+const firstName = ref('')
+const lastName = ref('')
 const email = ref('')
 const password = ref('')
 const confirmPassword = ref('')
@@ -113,8 +114,17 @@ async function submit() {
   localError.value = null
   auth.error = null
 
-  if (!fullName.value.trim() || fullName.value.trim().length < 2) {
-    localError.value = 'Full name is required.'
+  if (!firstName.value.trim()) {
+    localError.value = 'First name is required.'
+    return
+  }
+  if (!lastName.value.trim()) {
+    localError.value = 'Last name is required.'
+    return
+  }
+  const fullName = `${firstName.value.trim()} ${lastName.value.trim()}`
+  if (fullName.length < 2) {
+    localError.value = 'Please enter a valid first and last name.'
     return
   }
   if (!email.value.trim()) {
@@ -146,13 +156,13 @@ async function submit() {
   try {
     await auth.register({
       email: email.value.trim(),
-      full_name: fullName.value.trim(),
+      full_name: fullName,
       password: password.value,
       confirm_password: confirmPassword.value,
       role: role.value!,
       plan: plan.value,
     })
-    router.push('/dashboard')
+    router.push('/')
   } catch {
     // auth.error already set
   }
@@ -162,14 +172,20 @@ async function submit() {
 <template>
   <div class="auth-page cm-grid-bg">
     <div class="auth-visual">
-      <div>
-        <div class="page-kicker">AutoVAD / Join</div>
-        <div class="brand-font auth-title mb-4">
-          Join Auto<span>VAD</span>
+      <div class="auth-visual-inner">
+        <div>
+          <div class="page-kicker">AutoVAD / Join</div>
+          <div class="brand-font auth-title mb-4">
+            Join Auto<span>VAD</span>
+          </div>
+          <p class="auth-lede">
+            Create your account, choose a plan, and start AI-assisted civil takeoff and BOQ generation.
+          </p>
         </div>
-        <p class="auth-lede">
-          Create your account, choose a plan, and start AI-assisted civil takeoff and BOQ generation.
-        </p>
+        <div class="auth-member-link">
+          <span>Already a member?</span>
+          <router-link to="/?signin=1">Sign in</router-link>
+        </div>
       </div>
     </div>
 
@@ -177,20 +193,27 @@ async function submit() {
       <div class="auth-form surface-panel pa-6 pa-md-8">
         <div class="page-kicker">Create account</div>
         <h1 class="brand-font text-h4 mb-1">Get started</h1>
-        <p class="muted mb-5">Full name, email, role, matching passwords, and a plan are required.</p>
+        <p class="muted mb-5">First name, last name, email, role, matching passwords, and a plan are required.</p>
 
         <v-alert v-if="localError || auth.error" type="error" variant="tonal" class="mb-4">
           {{ localError || auth.error }}
         </v-alert>
 
         <v-form @submit.prevent="submit">
-          <v-text-field
-            v-model="fullName"
-            label="Full name"
-            class="mb-2"
-            required
-            autocomplete="name"
-          />
+          <div class="name-row mb-2">
+            <v-text-field
+              v-model="firstName"
+              label="First name"
+              required
+              autocomplete="given-name"
+            />
+            <v-text-field
+              v-model="lastName"
+              label="Last name"
+              required
+              autocomplete="family-name"
+            />
+          </div>
           <v-text-field
             v-model="email"
             label="Email"
@@ -284,11 +307,7 @@ async function submit() {
           </v-btn>
         </v-form>
 
-        <div class="text-center mt-6">
-          <span class="muted">Already have an account?</span>
-          <router-link to="/login" class="ml-1">Sign in</router-link>
-        </div>
-        <div class="text-center mt-3">
+        <div class="auth-footer-row">
           <router-link to="/">← Back to home</router-link>
         </div>
       </div>
@@ -307,12 +326,54 @@ async function submit() {
   position: relative;
   color: #fff;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   padding: 48px 4vw;
   border-right: 1px solid var(--line);
   background:
     radial-gradient(circle at 75% 40%, rgba(72, 171, 135, 0.16), transparent 32%),
     #07100e;
+}
+
+.auth-visual-inner {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+  min-height: 70vh;
+}
+
+.auth-member-link {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.auth-member-link span {
+  color: #8a9690;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.auth-footer-row {
+  margin-top: 24px;
+  text-align: center;
+}
+
+.name-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 560px) {
+  .name-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .auth-title {

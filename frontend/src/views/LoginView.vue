@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
 const auth = useAuthStore()
 const router = useRouter()
-const route = useRoute()
 
 const email = ref('')
 const password = ref('')
@@ -13,8 +12,7 @@ const showPassword = ref(false)
 
 async function submit() {
   await auth.login(email.value.trim(), password.value)
-  const redirect = typeof route.query.redirect === 'string' ? route.query.redirect : '/dashboard'
-  router.push(redirect)
+  router.push('/')
 }
 </script>
 
@@ -63,7 +61,7 @@ async function submit() {
           <router-link to="/register" class="ml-1">Create an account</router-link>
         </div>
         <div class="text-center mt-3">
-          <router-link to="/">← Back to home</router-link>
+          <router-link to="/?signin=1">← Back to home &amp; sign in panel</router-link>
         </div>
       </div>
     </div>

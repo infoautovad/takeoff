@@ -3,10 +3,18 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { listNotifications, markAllRead, markRead, unreadCount, type NotificationItem } from '@/api/notifications'
+import { creditsRemaining, creditsRemainingPct } from '@/utils/credits'
 
 const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+
+const availableCredits = computed(() => creditsRemaining(auth.user?.plan))
+const creditsPct = computed(() => creditsRemainingPct(auth.user?.plan))
+const avatarInitial = computed(() => {
+  const name = auth.user?.full_name || auth.user?.email || 'U'
+  return name.trim().charAt(0).toUpperCase() || 'U'
+})
 
 const navItems = computed(() => {
   const items = [
@@ -14,6 +22,9 @@ const navItems = computed(() => {
     { title: 'Projects', icon: 'mdi-folder-multiple-outline', to: '/projects' },
     { title: 'Analytics', icon: 'mdi-chart-bar', to: '/analytics' },
     { title: 'Search', icon: 'mdi-magnify', to: '/search' },
+    { title: 'Account', icon: 'mdi-account-circle-outline', to: '/account' },
+    { title: 'Billing', icon: 'mdi-credit-card-outline', to: '/account/billing' },
+    { title: 'Settings', icon: 'mdi-cog-outline', to: '/account/settings' },
   ]
   if (auth.user?.role === 'admin') {
     items.push({ title: 'Admin', icon: 'mdi-shield-account-outline', to: '/admin' })
@@ -28,6 +39,10 @@ const pageTitle = computed(() => {
     'project-detail': 'Project',
     analytics: 'Analytics',
     search: 'Search',
+    account: 'Account details',
+    'account-settings': 'Settings',
+    'account-billing': 'Billing & credits',
+    'account-notifications': 'Notifications',
     admin: 'Admin',
     'document-viewer': 'Document Viewer',
   }
@@ -41,8 +56,12 @@ const pageKicker = computed(() => {
     'project-detail': '02 / PROJECT DETAIL',
     analytics: '03 / ANALYTICS',
     search: '04 / SEARCH',
-    admin: '05 / ADMIN',
-    'document-viewer': '06 / VIEWER',
+    account: '05 / ACCOUNT',
+    'account-settings': '05 / SETTINGS',
+    'account-billing': '05 / BILLING',
+    'account-notifications': '05 / NOTIFICATIONS',
+    admin: '06 / ADMIN',
+    'document-viewer': '07 / VIEWER',
   }
   return map[String(route.name)] || 'AUTOVAD / APP'
 })
@@ -106,8 +125,23 @@ function logout() {
     </v-list>
 
     <template #append>
-      <div class="pa-3">
-        <div class="user-card mb-3">
+      <div class="pa-3 drawer-footer">
+        <button type="button" class="credit-bar" title="Manage credits" @click="router.push('/account/billing')">
+          <div class="credit-bar-top">
+            <span class="credit-bar-avatar">{{ avatarInitial }}</span>
+            <span class="credit-bar-identity">
+              <small>SIGNED IN AS</small>
+              <b>{{ auth.user?.full_name }}</b>
+            </span>
+          </div>
+          <span class="credit-bar-divider" aria-hidden="true" />
+          <span class="credit-bar-credits">
+            <small>CREDITS AVAILABLE</small>
+            <b>{{ availableCredits.toLocaleString() }} <i>· {{ creditsPct }}% remaining</i></b>
+            <span class="credit-bar-meter" aria-hidden="true"><i :style="{ width: `${creditsPct}%` }" /></span>
+          </span>
+        </button>
+        <div class="user-card my-3">
           <div class="user-label">Signed in</div>
           <div class="user-name">{{ auth.user?.full_name }}</div>
           <div class="user-email">{{ auth.user?.email }}</div>
@@ -288,6 +322,114 @@ function logout() {
   font-size: 10px;
   color: #748078;
   margin-top: 4px;
+}
+
+.drawer-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.credit-bar {
+  margin-top: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 10px;
+  border: 1px solid #2a3a33;
+  background: #0d1814;
+  color: #eef4ef;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.credit-bar:hover {
+  border-color: rgba(217, 255, 67, 0.35);
+  background: #101f1a;
+}
+
+.credit-bar-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.credit-bar-avatar {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(217, 255, 67, 0.45);
+  background: rgba(217, 255, 67, 0.08);
+  color: var(--acid);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.credit-bar-identity,
+.credit-bar-credits {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.credit-bar-identity {
+  flex: 1 1 auto;
+}
+
+.credit-bar-divider {
+  display: block;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.credit-bar small {
+  color: #738078;
+  font-family: var(--font-mono);
+  font-size: 6px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.credit-bar-identity b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: #fff;
+}
+
+.credit-bar-credits b {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--acid);
+}
+
+.credit-bar-credits b i {
+  color: #aab6af;
+  font-style: normal;
+  font-weight: 400;
+}
+
+.credit-bar-meter {
+  width: 100%;
+  height: 2px;
+  background: #26342e;
+}
+
+.credit-bar-meter > i {
+  display: block;
+  height: 100%;
+  background: var(--acid);
+  box-shadow: 0 0 6px rgba(217, 255, 67, 0.6);
 }
 
 .app-topbar {
