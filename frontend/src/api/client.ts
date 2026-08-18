@@ -3,6 +3,9 @@ import axios from 'axios'
 const api = axios.create({
   baseURL: '/api',
   timeout: 60000,
+  // Allow arbitrarily large multipart uploads (no axios body cap).
+  maxBodyLength: Infinity,
+  maxContentLength: Infinity,
 })
 
 api.interceptors.request.use((config) => {

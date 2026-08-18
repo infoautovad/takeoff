@@ -365,7 +365,7 @@ onUnmounted(() => {
           <div class="upload-icon"><span>↑</span></div>
           <div>
             <strong>{{ fileName || 'Drop your plan set here' }}</strong>
-            <small>{{ fileName ? 'Ready for AI sheet analysis' : 'PDF · DWG · DXF · LANDXML · up to 50 MB' }}</small>
+            <small>{{ fileName ? 'Ready for AI sheet analysis' : 'PDF · DWG · DXF · LANDXML · no size limit' }}</small>
             <button
               v-if="fileName"
               class="change-source"

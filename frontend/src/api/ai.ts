@@ -1,15 +1,13 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 import type { AnalysisResult, ChatMessage, ProcessResult } from '@/types'
-
-// Full PDF page vision runs in batches; large plan sets can take a long time.
-const ANALYZE_TIMEOUT_MS = 1_800_000 // 30 minutes
 
 export async function analyzeDocument(
   documentId: number,
   options?: { signal?: AbortSignal },
 ): Promise<ProcessResult> {
   const { data } = await api.post<ProcessResult>(`/ai/documents/${documentId}/analyze`, null, {
-    timeout: ANALYZE_TIMEOUT_MS,
+    timeout: NO_HTTP_TIMEOUT,
     signal: options?.signal,
   })
   return data
@@ -20,7 +18,7 @@ export async function analyzeProject(
   options?: { signal?: AbortSignal },
 ): Promise<ProcessResult[]> {
   const { data } = await api.post<ProcessResult[]>(`/ai/projects/${projectId}/analyze`, null, {
-    timeout: ANALYZE_TIMEOUT_MS,
+    timeout: NO_HTTP_TIMEOUT,
     signal: options?.signal,
   })
   return data
@@ -40,7 +38,7 @@ export async function askChat(projectId: number, question: string): Promise<Chat
   const { data } = await api.post<ChatMessage>(
     `/ai/projects/${projectId}/chat`,
     { question },
-    { timeout: 300000 },
+    { timeout: NO_HTTP_TIMEOUT },
   )
   return data
 }

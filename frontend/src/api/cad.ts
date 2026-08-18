@@ -1,4 +1,5 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 
 export async function cadCapabilities() {
   const { data } = await api.get('/cad/capabilities')
@@ -34,7 +35,7 @@ export interface CadCapabilities {
 }
 
 export async function setupDesignAutomation() {
-  const { data } = await api.post('/cad/design-automation/setup', null, { timeout: 120000 })
+  const { data } = await api.post('/cad/design-automation/setup', null, { timeout: NO_HTTP_TIMEOUT })
   return data as {
     nickname: string
     engine: string
@@ -50,18 +51,16 @@ export async function listCadModels(projectId: number) {
   return data as CadModel[]
 }
 
-const CAD_TIMEOUT_MS = 600000 // Autodesk APS translation can take several minutes
-
 export async function processCadDocument(documentId: number) {
   const { data } = await api.post(`/cad/documents/${documentId}/process`, null, {
-    timeout: CAD_TIMEOUT_MS,
+    timeout: NO_HTTP_TIMEOUT,
   })
   return data as CadModel
 }
 
 export async function processAllCad(projectId: number) {
   const { data } = await api.post(`/cad/projects/${projectId}/process-all`, null, {
-    timeout: CAD_TIMEOUT_MS,
+    timeout: NO_HTTP_TIMEOUT,
   })
   return data as CadModel[]
 }

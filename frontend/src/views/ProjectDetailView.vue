@@ -167,11 +167,11 @@ const statuses = [
 ]
 const suggestedQuestions = [
   'Analyze all files',
-  'Generate BOQ',
-  'Update my BOQ Excel',
+  'Generate Estimate Of Quantities',
+  'Update my Estimate Of Quantities Excel',
   'Process CAD',
   'Project status',
-  'What items are in the BOQ?',
+  'What items are in the Estimate Of Quantities?',
   'How much GSB is required?',
 ]
 
@@ -249,7 +249,7 @@ async function removeBid(id: number) {
 
 async function runBidMap() {
   if (!activeBoq.value) {
-    bidError.value = 'Generate a BOQ first, then re-map it to the active bid template.'
+    bidError.value = 'Generate an Estimate Of Quantities first, then re-map it to the active bid template.'
     return
   }
   if (!bidTemplates.value.length) {
@@ -305,7 +305,7 @@ function extractDetail(err: unknown, fallback: string) {
   }
   const code = (err as { code?: string })?.code
   if (code === 'ECONNABORTED' || /timeout/i.test(String((err as { message?: string })?.message || ''))) {
-    return fallback
+    return `${fallback} Connection was interrupted — keep this tab open and try again; large files can take a long time with no client timeout.`
   }
   return fallback
 }
@@ -319,9 +319,9 @@ function isCadDocument(doc?: { document_type?: string; original_filename?: strin
 }
 
 const pdfAnalyzeTips =
-  'Tips: Prefer a cleaner PDF/A or “Print to PDF” from CAD with fonts/images embedded. Analyze renders plan sheets for OpenAI vision (drawings + text/tables). MuPDF console warnings alone are not always a hard failure.'
+  'Tips: Prefer a cleaner PDF/A or “Print to PDF” from CAD with fonts/images embedded. Analyze renders plan sheets for OpenAI vision (drawings + text/tables). Large files can take a long time — keep this tab open; the app will not time out the request. MuPDF console warnings alone are not always a hard failure.'
 const cadAnalyzeTips =
-  'Tips: DWG uses Autodesk APS (not PDF vision). Ensure AUTODESK_CLIENT_ID/SECRET are set, or export DWG → DXF for local parsing. Large DWGs can take several minutes.'
+  'Tips: DWG uses Autodesk APS (not PDF vision). Ensure AUTODESK_CLIENT_ID/SECRET are set, or export DWG → DXF for local parsing. Large DWGs can take a long time — keep this tab open.'
 
 function withFileTips(message: string, cad: boolean) {
   return `${message} ${cad ? cadAnalyzeTips : pdfAnalyzeTips}`
@@ -369,7 +369,7 @@ async function deleteProject() {
   const name = store.currentProject?.name || 'this project'
   if (
     !confirm(
-      `Permanently delete "${name}"?\n\nThis removes the project, documents, BOQs, and related data. This cannot be undone.`,
+      `Permanently delete "${name}"?\n\nThis removes the project, documents, Estimates Of Quantities, and related data. This cannot be undone.`,
     )
   ) {
     return
@@ -418,7 +418,7 @@ function finishAnalyzeProgress(ok: boolean, message = '') {
     analyzeProgress.value = 100
     analyzeStage.value = 'Analysis complete'
     analyzeStatus.value = 'success'
-    analyzeStatusMessage.value = message || 'Takeoff signals are ready. You can generate a BOQ next.'
+    analyzeStatusMessage.value = message || 'Takeoff signals are ready. You can generate an Estimate Of Quantities next.'
   } else {
     analyzeStatus.value = 'error'
     analyzeStage.value = 'Analysis stopped'
@@ -499,8 +499,8 @@ async function runAnalyzeAll() {
     const msg = extractDetail(
       err,
       hasCad
-        ? 'CAD/DWG processing timed out or failed. Autodesk APS can take several minutes — try again, or export DWG → DXF.'
-        : 'Analysis failed (large PDFs can take a few minutes — try again if it timed out).',
+        ? 'CAD/DWG processing failed. Autodesk APS can take a long time on large files — keep this tab open, or export DWG → DXF for local parsing.'
+        : 'Analysis failed. Large PDFs can take a long time — keep this tab open until Analyze finishes.',
     )
     analyzeError.value = withFileTips(msg, hasCad)
     finishAnalyzeProgress(false, msg)
@@ -536,8 +536,8 @@ async function runAnalyzeOne(documentId: number) {
     const msg = extractDetail(
       err,
       cad
-        ? 'CAD/DWG processing timed out or failed. Autodesk APS can take several minutes — try again, or export DWG → DXF.'
-        : 'Analysis failed (large PDFs can take a few minutes — try again if it timed out).',
+        ? 'CAD/DWG processing failed. Autodesk APS can take a long time on large files — keep this tab open, or export DWG → DXF for local parsing.'
+        : 'Analysis failed. Large PDFs can take a long time — keep this tab open until Analyze finishes.',
     )
     analyzeError.value = withFileTips(msg, cad)
     finishAnalyzeProgress(false, msg)
@@ -563,7 +563,7 @@ async function runGenerateBoq(documentIds?: number[]) {
     activeBoq.value = boq
     tab.value = 'boq'
   } catch (err) {
-    boqError.value = extractDetail(err, 'BOQ generation failed')
+    boqError.value = extractDetail(err, 'Estimate Of Quantities generation failed')
   } finally {
     boqLoading.value = false
     boqSourceDocId.value = null
@@ -589,11 +589,11 @@ function toggleBoqScope(docId: number) {
 }
 async function exportExcel() {
   if (!activeBoq.value) return
-  await downloadBoqExcel(activeBoq.value.id, `AutoVAD_BOQ_v${activeBoq.value.version}.xlsx`)
+  await downloadBoqExcel(activeBoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeBoq.value.version}.xlsx`)
 }
 async function exportCsv() {
   if (!activeBoq.value) return
-  await downloadBoqCsv(activeBoq.value.id, `AutoVAD_BOQ_v${activeBoq.value.version}.csv`)
+  await downloadBoqCsv(activeBoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeBoq.value.version}.csv`)
 }
 async function approval(action: 'submit' | 'approve' | 'reject') {
   if (!activeBoq.value) return
@@ -627,7 +627,7 @@ async function verifyBoqItem(item: BOQItem) {
     const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
     if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
   } catch (err) {
-    boqError.value = extractDetail(err, 'Could not verify BOQ item')
+    boqError.value = extractDetail(err, 'Could not verify Estimate Of Quantities item')
   } finally {
     boqItemSaving.value = null
   }
@@ -642,7 +642,7 @@ async function markBoqItemReview(item: BOQItem) {
     const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
     if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
   } catch (err) {
-    boqError.value = extractDetail(err, 'Could not update BOQ item')
+    boqError.value = extractDetail(err, 'Could not update Estimate Of Quantities item')
   } finally {
     boqItemSaving.value = null
   }
@@ -701,7 +701,7 @@ async function uploadSorFile() {
   finally { costLoading.value = false }
 }
 async function runEstimate() {
-  if (!activeBoq.value) { costError.value = 'Generate a BOQ first'; return }
+  if (!activeBoq.value) { costError.value = 'Generate an Estimate Of Quantities first'; return }
   costLoading.value = true
   costError.value = null
   try {
@@ -718,7 +718,7 @@ async function runBoqCompare() {
   try {
     await compareBoqs(projectId.value, leftBoqId.value, rightBoqId.value)
     await loadComparisons()
-  } catch (err) { compareError.value = extractDetail(err, 'BOQ compare failed') }
+  } catch (err) { compareError.value = extractDetail(err, 'Estimate Of Quantities compare failed') }
   finally { compareLoading.value = false }
 }
 async function runDrawingCompare() {
@@ -817,7 +817,7 @@ const cadDocuments = computed(() =>
         </div>
         <div class="d-flex flex-wrap ga-2">
           <v-btn color="primary" :loading="analyzing" prepend-icon="mdi-brain" @click="runAnalyzeAll">Analyze</v-btn>
-          <v-btn color="secondary" variant="tonal" :loading="boqLoading" @click="runGenerateBoq()">Generate BOQ</v-btn>
+          <v-btn color="secondary" variant="tonal" :loading="boqLoading" @click="runGenerateBoq()">Generate Estimate Of Quantities</v-btn>
           <v-btn variant="tonal" @click="openEdit">Edit</v-btn>
           <v-btn variant="outlined" color="warning" @click="archiveProject">Archive</v-btn>
           <v-btn variant="outlined" color="error" prepend-icon="mdi-delete-outline" @click="deleteProject">
@@ -833,7 +833,7 @@ const cadDocuments = computed(() =>
       <v-tabs v-model="tab" color="primary" class="mb-4" show-arrows>
         <v-tab value="documents">Documents</v-tab>
         <v-tab value="cad">CAD / Civil 3D</v-tab>
-        <v-tab value="boq">BOQ</v-tab>
+        <v-tab value="boq">Estimate Of Quantities</v-tab>
         <v-tab value="bid">Bid templates</v-tab>
         <v-tab value="cost">Cost</v-tab>
         <v-tab value="compare">Compare</v-tab>
@@ -852,13 +852,14 @@ const cadDocuments = computed(() =>
                 <v-file-input :model-value="selectedFiles" multiple show-size prepend-icon="" prepend-inner-icon="mdi-paperclip" accept=".pdf,.xlsx,.xls,.csv,.png,.jpg,.jpeg,.tif,.tiff,.zip,.dxf,.dwg,.xml,.landxml,.json" class="mb-2" @update:model-value="onFileChange" />
                 <p class="text-caption muted mb-2">
                   PDF/Excel/CSV for document AI. DXF/DWG/LandXML/JSON for CAD &amp; Civil 3D Intelligence Engine.
+                  No file size limit.
                 </p>
                 <details class="plan-tips mb-3">
                   <summary>Plan file tips (optional)</summary>
                   <ul class="doc-tips mt-2 mb-0">
                     <li>PDF: Analyze uses text/tables + OpenAI vision on plan sheets.</li>
                     <li>DWG: use Process CAD / Analyze on that file — Autodesk APS (not PDF vision). Or export DWG → DXF for local parse.</li>
-                    <li>Per-file BOQ: use the BOQ button on a file, or select files on the BOQ tab.</li>
+                    <li>Per-file Estimate Of Quantities: use the Estimate Of Quantities button on a file, or select files on the Estimate Of Quantities tab.</li>
                     <li>If a run fails, check the red error and each file’s status — MuPDF console warnings alone are not always a hard failure.</li>
                   </ul>
                 </details>
@@ -895,7 +896,7 @@ const cadDocuments = computed(() =>
                         :disabled="doc.processing_status === 'processing' || doc.processing_status === 'queued'"
                         @click="runGenerateBoqForDoc(doc.id)"
                       >
-                        BOQ
+                        Estimate Of Quantities
                       </v-btn>
                       <v-btn size="small" variant="text" @click="router.push(`/viewer/${doc.id}`)">Open source</v-btn>
                       <v-btn icon="mdi-download" size="small" variant="text" @click="downloadDocument(doc.id, doc.original_filename)" />
@@ -919,7 +920,7 @@ const cadDocuments = computed(() =>
                 <h2 class="brand-font text-h6 mb-1">CAD & Civil 3D Intelligence Engine</h2>
                 <p class="muted text-body-2 mb-0">
                   DWG runs through Autodesk <strong>Design Automation</strong> (cloud AutoCAD) when enabled,
-                  with Model Derivative as fallback. DXF / LandXML parse locally → quantity takeoff → BOQ.
+                  with Model Derivative as fallback. DXF / LandXML parse locally → quantity takeoff → Estimate Of Quantities.
                 </p>
               </div>
               <div class="d-flex flex-wrap ga-2">
@@ -997,7 +998,7 @@ const cadDocuments = computed(() =>
                   :loading="boqLoading && boqSourceDocId === doc.id"
                   @click="runGenerateBoqForDoc(doc.id)"
                 >
-                  BOQ
+                  Estimate Of Quantities
                 </v-btn>
               </div>
             </div>
@@ -1076,7 +1077,7 @@ const cadDocuments = computed(() =>
                   variant="tonal"
                   :disabled="!activeBoq || !bidTemplates.length"
                   :loading="bidLoading"
-                  title="Re-match an existing BOQ to the active bid template without regenerating"
+                  title="Re-match an existing Estimate Of Quantities to the active bid template without regenerating"
                   @click="runBidMap"
                 >
                   Re-map to template
@@ -1089,7 +1090,7 @@ const cadDocuments = computed(() =>
               </div>
             </div>
             <div v-if="store.documents.length" class="doc-row mb-4 pa-3">
-              <div class="text-caption muted mb-2">Select files for a separate BOQ (optional)</div>
+              <div class="text-caption muted mb-2">Select files for a separate Estimate Of Quantities (optional)</div>
               <div class="d-flex flex-wrap ga-2">
                 <v-chip
                   v-for="doc in store.documents"
@@ -1104,7 +1105,7 @@ const cadDocuments = computed(() =>
                 </v-chip>
               </div>
             </div>
-            <div v-if="!activeBoq" class="muted text-center py-10">Analyze documents / process CAD, then generate BOQ.</div>
+            <div v-if="!activeBoq" class="muted text-center py-10">Analyze documents / process CAD, then generate Estimate Of Quantities.</div>
             <template v-else>
               <div class="d-flex flex-wrap ga-2 mb-3 align-center">
                 <v-chip size="small" variant="tonal">{{ activeBoq.title }}</v-chip>
@@ -1237,9 +1238,9 @@ const cadDocuments = computed(() =>
             <h2 class="brand-font text-h6 mb-1">Bid templates</h2>
             <p class="muted mb-4">
               Upload your agency bid list (PDF / Excel / CSV). AutoVAD reads it, then when you analyze design plans
-              and <strong>Generate BOQ</strong>, only bid items evidenced in those plans are included (matched by
+              and <strong>Generate Estimate Of Quantities</strong>, only bid items evidenced in those plans are included (matched by
               code / description / unit). Without a template, AutoVAD uses its default CSI takeoff.
-              <strong> Re-map to template</strong> only re-matches an existing BOQ — prefer Generate after Analyze.
+              <strong> Re-map to template</strong> only re-matches an existing Estimate Of Quantities — prefer Generate after Analyze.
             </p>
             <v-alert v-if="bidError" type="error" variant="tonal" class="mb-3">{{ bidError }}</v-alert>
             <v-file-input
@@ -1248,12 +1249,14 @@ const cadDocuments = computed(() =>
               accept=".pdf,.xlsx,.xls,.csv"
               prepend-icon=""
               prepend-inner-icon="mdi-file-table-outline"
-              class="mb-3"
+              show-size
+              class="mb-2"
             />
+            <p class="text-caption muted mb-3">PDF / Excel / CSV. No file size limit.</p>
             <div class="d-flex flex-wrap ga-2 mb-4">
               <v-btn color="primary" :loading="bidLoading" @click="uploadBidFile">Upload bid list</v-btn>
               <v-btn variant="tonal" :disabled="!activeBoq || !bidTemplates.length" :loading="bidLoading" @click="runBidMap">
-                Re-map active BOQ
+                Re-map active Estimate Of Quantities
               </v-btn>
             </div>
 
@@ -1291,7 +1294,7 @@ const cadDocuments = computed(() =>
             </div>
 
             <div v-if="bidMapResult" class="analysis-box pa-3 mt-4">
-              Mapped {{ bidMapResult.matched }} / {{ bidMapResult.total }} BOQ items to “{{ bidMapResult.template_name }}”.
+              Mapped {{ bidMapResult.matched }} / {{ bidMapResult.total }} Estimate Of Quantities items to “{{ bidMapResult.template_name }}”.
               Unmatched: {{ bidMapResult.unmatched }}.
             </div>
           </div>
@@ -1300,7 +1303,7 @@ const cadDocuments = computed(() =>
         <v-tabs-window-item value="cost">
           <div class="surface-panel pa-5">
             <h2 class="brand-font text-h6 mb-2">Cost estimator</h2>
-            <p class="muted mb-4">Upload Schedule of Rates (SOR), then match against BOQ quantities.</p>
+            <p class="muted mb-4">Upload Schedule of Rates (SOR), then match against Estimate Of Quantities quantities.</p>
             <v-alert v-if="costError" type="error" variant="tonal" class="mb-3">{{ costError }}</v-alert>
             <v-file-input v-model="sorFile" label="SOR CSV/Excel" accept=".csv,.xlsx,.xls" prepend-icon="" prepend-inner-icon="mdi-currency-usd" class="mb-3" />
             <div class="d-flex ga-2 mb-4">
@@ -1333,10 +1336,10 @@ const cadDocuments = computed(() =>
             <v-alert v-if="compareError" type="error" variant="tonal" class="mb-3">{{ compareError }}</v-alert>
             <v-row>
               <v-col cols="12" md="6">
-                <h3 class="text-subtitle-2 mb-2">BOQ vs BOQ</h3>
-                <v-select v-model="leftBoqId" :items="boqs" item-title="title" item-value="id" label="Left BOQ" class="mb-2" />
-                <v-select v-model="rightBoqId" :items="boqs" item-title="title" item-value="id" label="Right BOQ" class="mb-2" />
-                <v-btn color="primary" :loading="compareLoading" @click="runBoqCompare">Compare BOQs</v-btn>
+                <h3 class="text-subtitle-2 mb-2">Estimate Of Quantities vs Estimate Of Quantities</h3>
+                <v-select v-model="leftBoqId" :items="boqs" item-title="title" item-value="id" label="Left Estimate Of Quantities" class="mb-2" />
+                <v-select v-model="rightBoqId" :items="boqs" item-title="title" item-value="id" label="Right Estimate Of Quantities" class="mb-2" />
+                <v-btn color="primary" :loading="compareLoading" @click="runBoqCompare">Compare Estimates Of Quantities</v-btn>
               </v-col>
               <v-col cols="12" md="6">
                 <h3 class="text-subtitle-2 mb-2">Drawing revision compare</h3>
@@ -1397,7 +1400,7 @@ const cadDocuments = computed(() =>
           <div class="surface-panel pa-5">
             <h2 class="brand-font text-h6 mb-1">AI Engineering Chat</h2>
             <p class="muted text-body-2 mb-3">
-              Ask questions or give commands — I can analyze files, generate BOQ, export Excel, process CAD, map bid templates, and estimate cost.
+              Ask questions or give commands — I can analyze files, generate Estimate Of Quantities, export Excel, process CAD, map bid templates, and estimate cost.
             </p>
             <div class="d-flex flex-wrap ga-2 mb-3">
               <v-chip v-for="q in suggestedQuestions" :key="q" size="small" variant="outlined" @click="sendChat(q)">{{ q }}</v-chip>
@@ -1538,7 +1541,7 @@ const cadDocuments = computed(() =>
               color="primary"
               @click="closeAnalyzeModal(); tab = 'boq'"
             >
-              Go to BOQ
+              Go to Estimate Of Quantities
             </v-btn>
             <v-btn
               v-else-if="analyzeStatus === 'error' || analyzeStatus === 'cancelled'"

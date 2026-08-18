@@ -43,7 +43,8 @@ class Settings(BaseSettings):
     openai_vision_force_utility_pages: bool = True
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
-    max_upload_size_mb: int = 200
+    # 0 = unlimited upload size (no MB cap on document / bid uploads).
+    max_upload_size_mb: int = 0
     allowed_extensions: str = (
         "pdf,xlsx,xls,csv,png,jpg,jpeg,tif,tiff,zip,"
         "dxf,dwg,xml,landxml,"
@@ -54,13 +55,13 @@ class Settings(BaseSettings):
     autodesk_client_id: str | None = None
     autodesk_client_secret: str | None = None
     autodesk_bucket_key: str | None = None
-    autodesk_poll_timeout_seconds: int = 540
+    autodesk_poll_timeout_seconds: int = 3600
     autodesk_poll_interval_seconds: int = 5
     # Design Automation — cloud AutoCAD/Civil 3D work items (DWG→DXF or plugin takeoff)
     design_automation_enabled: bool = True
     design_automation_nickname: str | None = None
     design_automation_engine: str = "auto"  # or e.g. Autodesk.AutoCAD+25_0
-    design_automation_timeout_seconds: int = 540
+    design_automation_timeout_seconds: int = 3600
     design_automation_prefer_plugin: bool = True
     design_automation_appbundle_path: str | None = None
     design_automation_fallback_model_derivative: bool = True

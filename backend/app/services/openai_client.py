@@ -33,7 +33,13 @@ def get_openai_client():
         raise RuntimeError("OPENAI_API_KEY is not configured")
     from openai import OpenAI
 
-    return OpenAI(api_key=get_settings().openai_api_key.strip())
+    # Long timeout per call: large vision batches / takeoff prompts can run many minutes.
+    # Retries stay low so a stuck call does not multiply wait time endlessly.
+    return OpenAI(
+        api_key=get_settings().openai_api_key.strip(),
+        timeout=3600.0,  # 60 minutes per OpenAI request
+        max_retries=2,
+    )
 
 
 def _model_name() -> str:

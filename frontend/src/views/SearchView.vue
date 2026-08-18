@@ -23,14 +23,14 @@ async function runSearch() {
   <div class="page-shell">
     <div class="page-kicker">Find anything</div>
     <h1 class="brand-font text-h4 mb-1">Search</h1>
-    <p class="muted mb-6">Find projects, drawings, BOQ items, materials, and documents.</p>
+    <p class="muted mb-6">Find projects, drawings, Estimate Of Quantities items, materials, and documents.</p>
 
     <div class="surface-panel pa-4 mb-5">
       <v-row dense align="center">
         <v-col cols="12" md="9">
           <v-text-field
             v-model="q"
-            label="Search projects, drawings, chainage, materials, BOQ..."
+            label="Search projects, drawings, chainage, materials, Estimate Of Quantities..."
             prepend-inner-icon="mdi-magnify"
             hide-details
             @keyup.enter="runSearch"
@@ -76,7 +76,7 @@ async function runSearch() {
         </v-col>
         <v-col cols="12" md="4">
           <div class="surface-panel pa-4">
-            <h2 class="brand-font text-subtitle-1 mb-3">BOQ items ({{ result.boq_items.length }})</h2>
+            <h2 class="brand-font text-subtitle-1 mb-3">Estimate Of Quantities items ({{ result.boq_items.length }})</h2>
             <div v-if="!result.boq_items.length" class="muted">No matches</div>
             <div v-for="i in result.boq_items" :key="i.id" class="result-row static">
               <div class="font-weight-medium">{{ i.description }}</div>

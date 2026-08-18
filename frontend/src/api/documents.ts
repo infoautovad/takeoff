@@ -1,4 +1,5 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 import type { DocumentItem } from '@/types'
 
 export async function listDocuments(projectId: number): Promise<DocumentItem[]> {
@@ -16,7 +17,11 @@ export async function uploadDocument(
   form.append('file', file)
   if (revisionLabel) form.append('revision_label', revisionLabel)
   if (notes) form.append('notes', notes)
-  const { data } = await api.post<DocumentItem>(`/documents/project/${projectId}/upload`, form)
+  const { data } = await api.post<DocumentItem>(`/documents/project/${projectId}/upload`, form, {
+    timeout: NO_HTTP_TIMEOUT,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  })
   return data
 }
 
@@ -27,6 +32,7 @@ export async function deleteDocument(documentId: number): Promise<void> {
 export async function downloadDocument(documentId: number, filename: string): Promise<void> {
   const { data } = await api.get(`/documents/${documentId}/download`, {
     responseType: 'blob',
+    timeout: NO_HTTP_TIMEOUT,
   })
   const url = window.URL.createObjectURL(data)
   const anchor = document.createElement('a')

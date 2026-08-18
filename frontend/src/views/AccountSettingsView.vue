@@ -58,7 +58,7 @@ try {
       <label class="toggle-row">
         <span>
           <b>Takeoff complete</b>
-          <small>Notify when AI analysis or BOQ generation finishes</small>
+          <small>Notify when AI analysis or Estimate Of Quantities generation finishes</small>
         </span>
         <input v-model="prefs.takeoffComplete" type="checkbox" />
       </label>
@@ -90,7 +90,7 @@ try {
       </label>
       <label class="toggle-row">
         <span>
-          <b>Compact BOQ tables</b>
+          <b>Compact Estimate Of Quantities tables</b>
           <small>Use denser row spacing in quantity review screens</small>
         </span>
         <input v-model="prefs.densifyTables" type="checkbox" />

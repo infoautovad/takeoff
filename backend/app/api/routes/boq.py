@@ -88,7 +88,7 @@ def generate_boq(
         user_id=current_user.id,
         project_id=project_id,
         action="boq_generated",
-        message=f"Generated BOQ v{boq.version}{scope_msg}",
+        message=f"Generated Estimate Of Quantities v{boq.version}{scope_msg}",
         entity_type="boq",
         entity_id=boq.id,
     )
@@ -96,7 +96,7 @@ def generate_boq(
         db,
         user_id=current_user.id,
         project_id=project_id,
-        title="BOQ generated",
+        title="Estimate Of Quantities generated",
         message=f"{boq.title} is ready for review",
         category="boq",
     )
@@ -111,7 +111,7 @@ def get_boq_detail(
 ) -> BOQOut:
     boq = get_boq(db, boq_id)
     if not boq:
-        raise HTTPException(status_code=404, detail="BOQ not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
     _get_accessible_project(db, boq.project_id, current_user)
     return BOQOut.model_validate(boq)
 
@@ -125,10 +125,10 @@ def patch_boq_item(
 ) -> BOQItemOut:
     item = get_boq_item(db, item_id)
     if not item:
-        raise HTTPException(status_code=404, detail="BOQ item not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities item not found")
     boq = get_boq(db, item.boq_id)
     if not boq:
-        raise HTTPException(status_code=404, detail="BOQ not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
     _get_accessible_project(db, boq.project_id, current_user)
 
     if payload.status is not None and payload.status not in set(BOQItemStatus):
@@ -149,7 +149,7 @@ def patch_boq_item(
         user_id=current_user.id,
         project_id=boq.project_id,
         action="boq_item_updated",
-        message=f"Updated BOQ item {updated.item_number}: {updated.description[:80]}",
+        message=f"Updated Estimate Of Quantities item {updated.item_number}: {updated.description[:80]}",
         entity_type="boq_item",
         entity_id=updated.id,
     )
@@ -164,11 +164,11 @@ def download_boq_excel(
 ) -> Response:
     boq = get_boq(db, boq_id)
     if not boq:
-        raise HTTPException(status_code=404, detail="BOQ not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
     _get_accessible_project(db, boq.project_id, current_user)
 
     content = export_boq_excel(boq)
-    filename = f"AutoVAD_BOQ_v{boq.version}_{boq.project_id}.xlsx"
+    filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{boq.project_id}.xlsx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -184,11 +184,11 @@ def download_boq_csv(
 ) -> Response:
     boq = get_boq(db, boq_id)
     if not boq:
-        raise HTTPException(status_code=404, detail="BOQ not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
     _get_accessible_project(db, boq.project_id, current_user)
 
     content = export_boq_csv(boq)
-    filename = f"AutoVAD_BOQ_v{boq.version}_{boq.project_id}.csv"
+    filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{boq.project_id}.csv"
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
@@ -208,7 +208,7 @@ def update_boq_approval(
 ) -> BOQOut:
     boq = get_boq(db, boq_id)
     if not boq:
-        raise HTTPException(status_code=404, detail="BOQ not found")
+        raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
     project = _get_accessible_project(db, boq.project_id, current_user)
 
     action = payload.action.lower().strip()
@@ -220,11 +220,11 @@ def update_boq_approval(
     elif action == "approve":
         boq.status = BOQStatus.APPROVED
         project.status = ProjectStatus.APPROVED
-        title = "BOQ approved"
+        title = "Estimate Of Quantities approved"
         message = f"{boq.title} approved"
     elif action == "reject":
         boq.status = BOQStatus.REJECTED
-        title = "BOQ rejected"
+        title = "Estimate Of Quantities rejected"
         message = f"{boq.title} rejected" + (f": {payload.note}" if payload.note else "")
     else:
         raise HTTPException(status_code=400, detail="action must be submit, approve, or reject")

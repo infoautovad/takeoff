@@ -131,7 +131,7 @@ def _process_cad_as_analysis(db: Session, document: Document) -> DocumentAnalysi
     elif qty_items:
         summary = (
             f"CAD takeoff for '{document.original_filename}': "
-            f"{len(qty_items)} quantity item(s) ready for BOQ generation and engineer review."
+            f"{len(qty_items)} quantity item(s) ready for Estimate Of Quantities generation and engineer review."
         )
 
     analysis = _upsert_analysis(

@@ -126,12 +126,14 @@ function logout() {
 
     <template #append>
       <div class="pa-3 drawer-footer">
-        <button type="button" class="credit-bar" title="Manage credits" @click="router.push('/account/billing')">
-          <div class="credit-bar-top">
+        <button type="button" class="account-footer-card" title="Manage account & credits" @click="router.push('/account/billing')">
+          <div class="account-footer-top">
             <span class="credit-bar-avatar">{{ avatarInitial }}</span>
-            <span class="credit-bar-identity">
-              <small>SIGNED IN AS</small>
+            <span class="account-footer-identity">
+              <small>SIGNED IN</small>
               <b>{{ auth.user?.full_name }}</b>
+              <em>{{ auth.user?.email }}</em>
+              <em class="role">{{ auth.user?.role }}</em>
             </span>
           </div>
           <span class="credit-bar-divider" aria-hidden="true" />
@@ -141,13 +143,7 @@ function logout() {
             <span class="credit-bar-meter" aria-hidden="true"><i :style="{ width: `${creditsPct}%` }" /></span>
           </span>
         </button>
-        <div class="user-card my-3">
-          <div class="user-label">Signed in</div>
-          <div class="user-name">{{ auth.user?.full_name }}</div>
-          <div class="user-email">{{ auth.user?.email }}</div>
-          <div class="user-role">{{ auth.user?.role }}</div>
-        </div>
-        <v-btn block color="primary" prepend-icon="mdi-logout" @click="logout">Sign out</v-btn>
+        <v-btn block color="primary" prepend-icon="mdi-logout" class="mt-3" @click="logout">Sign out</v-btn>
       </div>
     </template>
   </v-navigation-drawer>
@@ -295,42 +291,13 @@ function logout() {
   color: #5f6e66;
 }
 
-.user-card {
-  border: 1px solid #2a3a33;
-  background: #0d1814;
-  padding: 12px;
-}
-
-.user-label {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--acid);
-  margin-bottom: 8px;
-}
-
-.user-name {
-  font-size: 13px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.user-email,
-.user-role {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: #748078;
-  margin-top: 4px;
-}
-
 .drawer-footer {
   display: flex;
   flex-direction: column;
   gap: 0;
 }
 
-.credit-bar {
+.account-footer-card {
   margin-top: 0;
   width: 100%;
   display: flex;
@@ -345,16 +312,47 @@ function logout() {
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
-.credit-bar:hover {
+.account-footer-card:hover {
   border-color: rgba(217, 255, 67, 0.35);
   background: #101f1a;
 }
 
-.credit-bar-top {
+.account-footer-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   min-width: 0;
+}
+
+.account-footer-identity {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+}
+
+.account-footer-identity b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.account-footer-identity em {
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: #748078;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-footer-identity em.role {
+  text-transform: lowercase;
 }
 
 .credit-bar-avatar {
@@ -369,18 +367,14 @@ function logout() {
   font-family: var(--font-mono);
   font-size: 11px;
   font-weight: 700;
+  margin-top: 2px;
 }
 
-.credit-bar-identity,
 .credit-bar-credits {
   min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
-}
-
-.credit-bar-identity {
-  flex: 1 1 auto;
 }
 
 .credit-bar-divider {
@@ -390,7 +384,7 @@ function logout() {
   background: rgba(255, 255, 255, 0.12);
 }
 
-.credit-bar small {
+.account-footer-card small {
   color: #738078;
   font-family: var(--font-mono);
   font-size: 6px;
@@ -398,13 +392,10 @@ function logout() {
   text-transform: uppercase;
 }
 
-.credit-bar-identity b {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: #fff;
+.account-footer-identity small {
+  color: var(--acid);
+  font-size: 7px;
+  letter-spacing: 0.1em;
 }
 
 .credit-bar-credits b {

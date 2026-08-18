@@ -78,8 +78,8 @@ def boq_compare(
         db,
         user_id=current_user.id,
         project_id=project_id,
-        title="BOQ comparison ready",
-        message=row.summary or "BOQ comparison completed",
+        title="Estimate Of Quantities comparison ready",
+        message=row.summary or "Estimate Of Quantities comparison completed",
         category="comparison",
     )
     return _out(row)

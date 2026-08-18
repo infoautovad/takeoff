@@ -35,7 +35,7 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
         (
             "executive_summary",
             "Executive Summary",
-            f"Project '{project.name}' has {len(documents)} documents, {len(boqs)} BOQ version(s)"
+            f"Project '{project.name}' has {len(documents)} documents, {len(boqs)} Estimate Of Quantities version(s)"
             + (f", latest estimated cost {latest_cost.total_amount} {latest_cost.currency}." if latest_cost else "."),
             {
                 "project": project.name,
@@ -48,8 +48,8 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
         ),
         (
             "boq_report",
-            "BOQ Report",
-            f"Latest BOQ contains {len(latest_boq.items) if latest_boq else 0} items.",
+            "Estimate Of Quantities Report",
+            f"Latest Estimate Of Quantities contains {len(latest_boq.items) if latest_boq else 0} items.",
             {
                 "boq": latest_boq.title if latest_boq else None,
                 "items": [
@@ -75,7 +75,7 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
         (
             "pavement_report",
             "Pavement Report",
-            "Pavement-related BOQ items.",
+            "Pavement-related Estimate Of Quantities items.",
             {
                 "items": [
                     {

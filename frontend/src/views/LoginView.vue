@@ -25,9 +25,9 @@ async function submit() {
           Auto<span>VAD</span>
         </div>
         <p class="auth-lede mb-6">
-          Upload road plans. Extract quantities. Generate traceable BOQs engineers can trust.
+          Upload road plans. Extract quantities. Generate traceable Estimates Of Quantities engineers can trust.
         </p>
-        <div class="flow-steps">Login → Projects → Upload → AI Analysis → BOQ</div>
+        <div class="flow-steps">Login → Projects → Upload → AI Analysis → Estimate Of Quantities</div>
       </div>
     </div>
 

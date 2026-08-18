@@ -100,7 +100,7 @@ def upload_object(token: str, bucket: str, path: Path) -> dict[str, Any]:
     encoded_key = quote(object_key, safe="")
     auth_headers = {"Authorization": f"Bearer {token}"}
 
-    with httpx.Client(timeout=300.0) as client:
+    with httpx.Client(timeout=3600.0) as client:
         upload_key: str | None = None
         urls: list[str] = []
         first_part = 1
@@ -202,7 +202,7 @@ def start_translation(token: str, urn: str) -> dict[str, Any]:
         return resp.json()
 
 
-def wait_for_manifest(token: str, urn: str, *, timeout_s: int = 300, interval_s: int = 5) -> dict[str, Any]:
+def wait_for_manifest(token: str, urn: str, *, timeout_s: int = 3600, interval_s: int = 5) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {token}"}
     deadline = time.time() + timeout_s
     last: dict[str, Any] = {}
@@ -834,7 +834,7 @@ def process_dwg_with_aps(path: Path) -> dict[str, Any]:
     manifest = wait_for_manifest(
         token,
         urn,
-        timeout_s=int(getattr(settings, "autodesk_poll_timeout_seconds", 300) or 300),
+        timeout_s=int(getattr(settings, "autodesk_poll_timeout_seconds", 3600) or 3600),
         interval_s=int(getattr(settings, "autodesk_poll_interval_seconds", 5) or 5),
     )
     metadata = fetch_metadata_guids(token, urn)

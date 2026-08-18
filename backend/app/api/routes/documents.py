@@ -61,9 +61,14 @@ async def upload_document(
         )
 
     data = await file.read()
-    max_bytes = settings.max_upload_size_mb * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(status_code=400, detail=f"File exceeds {settings.max_upload_size_mb} MB limit")
+    # max_upload_size_mb <= 0 means unlimited (no size rejection).
+    if settings.max_upload_size_mb > 0:
+        max_bytes = settings.max_upload_size_mb * 1024 * 1024
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File exceeds {settings.max_upload_size_mb} MB limit",
+            )
 
     key = storage_service.build_key(project_id, file.filename)
     await storage_service.save_file(key, data)

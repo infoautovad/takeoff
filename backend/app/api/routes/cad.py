@@ -118,7 +118,7 @@ def cad_capabilities() -> dict:
             "Extract layers, lines, polylines, blocks, dimensions, text, tables",
             "Quantity engine (length / area / count)",
             "Optional OpenAI enrichment (when key configured)",
-            "Generate BOQ + material summary + Excel + confidence + source refs",
+            "Generate Estimate Of Quantities + material summary + Excel + confidence + source refs",
         ],
         "autodesk_aps_configured": aps_configured(),
         "autodesk_aps": aps,

@@ -1,4 +1,5 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 import type { BOQ } from '@/types'
 
 export async function listBoqs(projectId: number): Promise<BOQ[]> {
@@ -15,7 +16,7 @@ export async function generateBoq(
       ? { document_ids: options.documentIds }
       : {}
   const { data } = await api.post<BOQ>(`/boq/projects/${projectId}/generate`, body, {
-    timeout: 120000,
+    timeout: NO_HTTP_TIMEOUT,
   })
   return data
 }

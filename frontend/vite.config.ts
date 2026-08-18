@@ -19,12 +19,15 @@ export default defineConfig({
       '/api': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
-        timeout: 600000,
-        proxyTimeout: 600000,
+        // 0 = no proxy idle timeout (large PDF analyze / upload can run for hours)
+        timeout: 0,
+        proxyTimeout: 0,
       },
       '/health': {
         target: 'http://127.0.0.1:8001',
         changeOrigin: true,
+        timeout: 0,
+        proxyTimeout: 0,
       },
     },
   },

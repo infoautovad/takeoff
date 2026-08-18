@@ -17,7 +17,7 @@ def compare_boqs(db: Session, *, project_id: int, left_boq_id: int, right_boq_id
     left = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == left_boq_id, BOQ.project_id == project_id))
     right = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == right_boq_id, BOQ.project_id == project_id))
     if not left or not right:
-        raise ValueError("Both BOQs must belong to this project")
+        raise ValueError("Both Estimates Of Quantities must belong to this project")
 
     left_map = {i.description.lower().strip(): i for i in left.items}
     right_map = {i.description.lower().strip(): i for i in right.items}
@@ -49,7 +49,7 @@ def compare_boqs(db: Session, *, project_id: int, left_boq_id: int, right_boq_id
             extra.append({"description": ri.description, "quantity": float(ri.quantity), "unit": ri.unit})
 
     summary = (
-        f"Compared BOQ v{left.version} vs v{right.version}: "
+        f"Compared Estimate Of Quantities v{left.version} vs v{right.version}: "
         f"{len(missing)} missing, {len(extra)} extra, {len(qty_diff)} quantity diffs, {len(unit_mismatch)} unit mismatches."
     )
     payload = {
@@ -61,8 +61,8 @@ def compare_boqs(db: Session, *, project_id: int, left_boq_id: int, right_boq_id
     row = ComparisonResult(
         project_id=project_id,
         comparison_type="boq",
-        left_label=f"BOQ v{left.version}",
-        right_label=f"BOQ v{right.version}",
+        left_label=f"Estimate Of Quantities v{left.version}",
+        right_label=f"Estimate Of Quantities v{right.version}",
         summary=summary,
         result_json=json.dumps(payload, ensure_ascii=True),
         created_by=user_id,

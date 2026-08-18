@@ -1,4 +1,5 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 
 export async function listSor(projectId: number) {
   const { data } = await api.get(`/cost/projects/${projectId}/sor`)
@@ -8,12 +9,18 @@ export async function listSor(projectId: number) {
 export async function uploadSor(projectId: number, file: File) {
   const form = new FormData()
   form.append('file', file)
-  const { data } = await api.post(`/cost/projects/${projectId}/sor/upload`, form)
+  const { data } = await api.post(`/cost/projects/${projectId}/sor/upload`, form, {
+    timeout: NO_HTTP_TIMEOUT,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  })
   return data
 }
 
 export async function createEstimate(projectId: number, boqId: number) {
-  const { data } = await api.post(`/cost/projects/${projectId}/estimate/${boqId}`)
+  const { data } = await api.post(`/cost/projects/${projectId}/estimate/${boqId}`, null, {
+    timeout: NO_HTTP_TIMEOUT,
+  })
   return data as {
     id: number
     title: string

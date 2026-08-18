@@ -250,7 +250,7 @@ async function archiveProject(project: Project, event?: Event) {
 async function deleteProject(project: Project, event?: Event) {
   event?.stopPropagation()
   const ok = window.confirm(
-    `Permanently delete "${project.name}"?\n\nThis removes the project, documents, BOQs, and related data. This cannot be undone.`,
+    `Permanently delete "${project.name}"?\n\nThis removes the project, documents, Estimates Of Quantities, and related data. This cannot be undone.`,
   )
   if (!ok) return
   deletingId.value = project.id
@@ -404,7 +404,7 @@ function locationLine(project: Project) {
               {{ project.document_count }} document{{ project.document_count === 1 ? '' : 's' }}
               <span class="mx-1">·</span>
               <v-icon size="14" class="mr-1">mdi-table</v-icon>
-              {{ project.boq_count ?? 0 }} BOQ{{ (project.boq_count ?? 0) === 1 ? '' : 's' }}
+              {{ project.boq_count ?? 0 }} {{ (project.boq_count ?? 0) === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities' }}
             </div>
             <div class="text-caption muted mb-4">Updated {{ formatDate(project.updated_at) }}</div>
 
@@ -451,7 +451,7 @@ function locationLine(project: Project) {
               <th>Client</th>
               <th>Location</th>
               <th>Docs</th>
-              <th>BOQs</th>
+              <th>Estimates Of Quantities</th>
               <th>Updated</th>
               <th class="text-right">Actions</th>
             </tr>

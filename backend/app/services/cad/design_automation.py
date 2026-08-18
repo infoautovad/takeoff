@@ -415,7 +415,7 @@ def _signed_upload_url(token: str, bucket: str, object_key: str, minutes: int = 
 def _download_oss_object(token: str, bucket: str, object_key: str) -> bytes:
     headers = {"Authorization": f"Bearer {token}"}
     encoded = quote(object_key, safe="")
-    with httpx.Client(timeout=300.0) as client:
+    with httpx.Client(timeout=3600.0) as client:
         resp = client.get(
             f"{APS_BASE}/oss/v2/buckets/{bucket}/objects/{encoded}",
             headers=headers,

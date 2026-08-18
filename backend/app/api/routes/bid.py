@@ -6,6 +6,7 @@ from pathlib import Path
 
 from app.api.deps import get_current_user
 from app.api.routes.projects import _get_accessible_project
+from app.config import get_settings
 from app.database import get_db
 from app.models.user import User
 from app.services.activity import log_activity
@@ -20,6 +21,7 @@ from app.services.csi_mapper import list_csi_catalog
 from app.services.notifications import notify
 
 router = APIRouter()
+settings = get_settings()
 
 
 class BidLineOut(BaseModel):
@@ -106,6 +108,15 @@ async def upload_template(
         raise HTTPException(status_code=400, detail="Upload PDF, Excel, or CSV bid template")
 
     data = await file.read()
+    # max_upload_size_mb <= 0 means unlimited (no size rejection).
+    if settings.max_upload_size_mb > 0:
+        max_bytes = settings.max_upload_size_mb * 1024 * 1024
+        if len(data) > max_bytes:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File exceeds {settings.max_upload_size_mb} MB limit",
+            )
+
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(data)
         tmp_path = Path(tmp.name)
@@ -188,6 +199,6 @@ def map_boq(
         user_id=current_user.id,
         project_id=project_id,
         action="bid_map",
-        message=f"Mapped BOQ {boq_id} to bid template ({result['matched']}/{result['total']} matched)",
+        message=f"Mapped Estimate Of Quantities {boq_id} to bid template ({result['matched']}/{result['total']} matched)",
     )
     return result

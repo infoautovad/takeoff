@@ -170,11 +170,11 @@ def get_dashboard_stats(
             AttentionItem(
                 kind="missing_boq",
                 severity="warning",
-                title="BOQ not generated yet",
-                detail="This project has uploads but no BOQ. Run Analyze / Process CAD, then Generate BOQ.",
+                title="Estimate Of Quantities not generated yet",
+                detail="This project has uploads but no Estimate Of Quantities. Run Analyze / Process CAD, then Generate Estimate Of Quantities.",
                 project_id=pid,
                 project_name=project_name(pid),
-                action_label="Generate BOQ",
+                action_label="Generate Estimate Of Quantities",
             )
         )
 
@@ -194,12 +194,12 @@ def get_dashboard_stats(
             AttentionItem(
                 kind="empty_boq",
                 severity="warning",
-                title=f"Empty BOQ: {boq.title}",
-                detail="BOQ exists but has 0 line items. Re-run CAD/document analysis, then regenerate.",
+                title=f"Empty Estimate Of Quantities: {boq.title}",
+                detail="Estimate Of Quantities exists but has 0 line items. Re-run CAD/document analysis, then regenerate.",
                 project_id=boq.project_id,
                 project_name=project_name(boq.project_id),
                 entity_id=boq.id,
-                action_label="Open BOQ",
+                action_label="Open Estimate Of Quantities",
             )
         )
         empty_added += 1
@@ -236,12 +236,12 @@ def get_dashboard_stats(
             AttentionItem(
                 kind="pending_review",
                 severity="info",
-                title=f"BOQ awaiting review: {boq.title}",
-                detail="Submit or approve this BOQ from the project workspace.",
+                title=f"Estimate Of Quantities awaiting review: {boq.title}",
+                detail="Submit or approve this Estimate Of Quantities from the project workspace.",
                 project_id=boq.project_id,
                 project_name=project_name(boq.project_id),
                 entity_id=boq.id,
-                action_label="Review BOQ",
+                action_label="Review Estimate Of Quantities",
             )
         )
 

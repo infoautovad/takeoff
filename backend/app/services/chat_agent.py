@@ -201,13 +201,13 @@ def format_action_answer(results: list[ActionResult], *, question: str) -> tuple
     if any(r.action == "export_boq_excel" and r.ok for r in results):
         lines.append("")
         lines.append(
-            "Your BOQ Excel is ready — use the **Download Excel** button below "
-            "(or BOQ tab → Excel). I can’t edit a file already open on your PC; "
+            "Your Estimate Of Quantities Excel is ready — use the **Download Excel** button below "
+            "(or Estimate Of Quantities tab → Excel). I can’t edit a file already open on your PC; "
             "download this fresh export instead."
         )
 
     lines.append("")
-    lines.append("Ask another command anytime, e.g. *analyze all files*, *generate BOQ*, *process CAD*, *estimate cost*.")
+    lines.append("Ask another command anytime, e.g. *analyze all files*, *generate Estimate Of Quantities*, *process CAD*, *estimate cost*.")
     return "\n".join(lines), sources
 
 
@@ -215,9 +215,9 @@ def help_text() -> str:
     return (
         "I can run project actions after you log in. Try:\n"
         "- **Analyze all files** / **Analyze drainage.pdf**\n"
-        "- **Generate BOQ**\n"
-        "- **Update/export my BOQ Excel** (refreshes BOQ + download link)\n"
-        "- **Export BOQ CSV**\n"
+        "- **Generate Estimate Of Quantities**\n"
+        "- **Update/export my Estimate Of Quantities Excel** (refreshes Estimate Of Quantities + download link)\n"
+        "- **Export Estimate Of Quantities CSV**\n"
         "- **Process CAD** (DXF/DWG/LandXML)\n"
         "- **Map bid template**\n"
         "- **Estimate cost** (needs SOR uploaded)\n"
@@ -239,7 +239,7 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
         templates = list_templates(db, project.id)
         sor = list_sor(db, project.id)
         msg = (
-            f"{len(docs)} document(s), {len(boqs)} BOQ version(s), "
+            f"{len(docs)} document(s), {len(boqs)} Estimate Of Quantities version(s), "
             f"{len(cad)} CAD model(s), {len(templates)} bid template(s), {len(sor)} SOR item(s)."
         )
         return ActionResult(
@@ -334,19 +334,19 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
             .order_by(BOQ.version.desc())
         )
         if not boq:
-            return ActionResult(action=name, ok=False, message="No BOQ found. Generate BOQ first.")
+            return ActionResult(action=name, ok=False, message="No Estimate Of Quantities found. Generate Estimate Of Quantities first.")
         kind = "excel" if name == "export_boq_excel" else "csv"
         ext = "xlsx" if kind == "excel" else "csv"
-        filename = f"AutoVAD_BOQ_v{boq.version}_{project.id}.{ext}"
+        filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{project.id}.{ext}"
         return ActionResult(
             action=name,
             ok=True,
-            message=f"BOQ v{boq.version} {kind.upper()} is ready for download ({len(boq.items)} items).",
+            message=f"Estimate Of Quantities v{boq.version} {kind.upper()} is ready for download ({len(boq.items)} items).",
             data={
                 "boq_id": boq.id,
                 "version": boq.version,
                 "download": f"/api/boq/{boq.id}/export/{kind}",
-                "download_label": f"Download BOQ {kind.upper()}",
+                "download_label": f"Download Estimate Of Quantities {kind.upper()}",
                 "filename": filename,
             },
         )
@@ -375,12 +375,12 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
             return ActionResult(action=name, ok=False, message="No active bid template. Upload one in the Bid templates tab first.")
         boq = db.scalar(select(BOQ).where(BOQ.project_id == project.id).order_by(BOQ.version.desc()))
         if not boq:
-            return ActionResult(action=name, ok=False, message="No BOQ to map. Generate BOQ first.")
+            return ActionResult(action=name, ok=False, message="No Estimate Of Quantities to map. Generate Estimate Of Quantities first.")
         result = map_boq_to_template(db, boq_id=boq.id, template_id=active.id)
         return ActionResult(
             action=name,
             ok=True,
-            message=f"Mapped {result['matched']}/{result['total']} BOQ items to '{active.name}'.",
+            message=f"Mapped {result['matched']}/{result['total']} Estimate Of Quantities items to '{active.name}'.",
             data=result,
         )
 
@@ -390,7 +390,7 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
             return ActionResult(action=name, ok=False, message="Upload a SOR (Schedule of Rates) in the Cost tab first.")
         boq = db.scalar(select(BOQ).where(BOQ.project_id == project.id).order_by(BOQ.version.desc()))
         if not boq:
-            return ActionResult(action=name, ok=False, message="No BOQ found. Generate BOQ first.")
+            return ActionResult(action=name, ok=False, message="No Estimate Of Quantities found. Generate Estimate Of Quantities first.")
         est = generate_cost_estimate(db, project_id=project.id, boq_id=boq.id, user_id=user_id)
         return ActionResult(
             action=name,

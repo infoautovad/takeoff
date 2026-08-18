@@ -20,7 +20,7 @@ def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
         title=settings.app_name,
-        description="AI Copilot for Civil Engineers — document intelligence, quantity takeoff, and BOQ generation.",
+        description="AI Copilot for Civil Engineers — document intelligence, quantity takeoff, and Estimate Of Quantities generation.",
         version="0.1.0",
         lifespan=lifespan,
     )

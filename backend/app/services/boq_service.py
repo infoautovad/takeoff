@@ -166,7 +166,7 @@ def generate_boq_for_project(
     if not extracted:
         raise ValueError(
             "No quantities found from the selected file(s). "
-            "Run Analyze / Process CAD first, then Generate BOQ again."
+            "Run Analyze / Process CAD first, then Generate Estimate Of Quantities again."
             if scope_ids
             else "No quantities found from design plans. Upload PDF/DWG and run Analyze / Process CAD first."
         )
@@ -195,7 +195,7 @@ def generate_boq_for_project(
         items_list = [enrich_quantity_item(dict(item)) for item in extracted]
         notes_extra = (
             " Generated with AutoVAD default CSI schedule (no bid template uploaded)."
-            " Upload a bid list so Generate BOQ maps only the bid items needed for this project."
+            " Upload a bid list so Generate Estimate Of Quantities maps only the bid items needed for this project."
         )
 
     from app.models.document import Document
@@ -213,7 +213,7 @@ def generate_boq_for_project(
     latest_version = db.scalar(select(func.max(BOQ.version)).where(BOQ.project_id == project.id)) or 0
     boq = BOQ(
         project_id=project.id,
-        title=f"{project.name} - BOQ v{latest_version + 1}{scope_label}",
+        title=f"{project.name} - Estimate Of Quantities v{latest_version + 1}{scope_label}",
         version=latest_version + 1,
         status=BOQStatus.AI_GENERATED,
         currency="USD",
@@ -442,7 +442,7 @@ def export_boq_excel(boq: BOQ) -> bytes:
     """Full AutoVAD BOQ columns with municipal-style section grouping."""
     wb = Workbook()
     ws = wb.active
-    ws.title = "BOQ"
+    ws.title = "Estimate Of Quantities"
 
     headers = BOQ_EXPORT_HEADERS
     col_count = len(headers)
@@ -565,7 +565,7 @@ def export_boq_excel(boq: BOQ) -> bytes:
     ws.freeze_panes = "A3"
 
     meta = wb.create_sheet("Meta")
-    meta.append(["BOQ Title", boq.title])
+    meta.append(["Estimate Of Quantities Title", boq.title])
     meta.append(["Version", boq.version])
     meta.append(["Status", boq.status.value])
     meta.append(["Currency", boq.currency])
@@ -574,7 +574,7 @@ def export_boq_excel(boq: BOQ) -> bytes:
     meta.append(
         [
             "Layout",
-            "Full BOQ columns with municipal section grouping "
+            "Full Estimate Of Quantities columns with municipal section grouping "
             "(Removals, Grading, Watermain, Sanitary Sewer, …)",
         ]
     )

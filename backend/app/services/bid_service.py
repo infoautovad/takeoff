@@ -120,7 +120,7 @@ def import_bid_template(
 def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = None) -> dict[str, Any]:
     boq = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq_id))
     if not boq:
-        raise ValueError("BOQ not found")
+        raise ValueError("Estimate Of Quantities not found")
 
     if template_id:
         template = db.scalar(

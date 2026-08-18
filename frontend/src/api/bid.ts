@@ -1,4 +1,5 @@
 import api from './client'
+import { NO_HTTP_TIMEOUT } from './timeouts'
 
 export interface BidTemplateLine {
   id: number
@@ -42,7 +43,11 @@ export async function uploadBidTemplate(projectId: number, file: File, name?: st
   const form = new FormData()
   form.append('file', file)
   if (name) form.append('name', name)
-  const { data } = await api.post<BidTemplate>(`/bid/projects/${projectId}/templates/upload`, form)
+  const { data } = await api.post<BidTemplate>(`/bid/projects/${projectId}/templates/upload`, form, {
+    timeout: NO_HTTP_TIMEOUT,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+  })
   return data
 }
 
@@ -58,6 +63,7 @@ export async function deleteBidTemplate(projectId: number, templateId: number): 
 export async function mapBoqToBid(projectId: number, boqId: number, templateId?: number): Promise<BidMapResult> {
   const { data } = await api.post<BidMapResult>(`/bid/projects/${projectId}/boq/${boqId}/map`, null, {
     params: templateId ? { template_id: templateId } : undefined,
+    timeout: NO_HTTP_TIMEOUT,
   })
   return data
 }

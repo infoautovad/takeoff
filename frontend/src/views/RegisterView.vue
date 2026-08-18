@@ -179,7 +179,7 @@ async function submit() {
             Join Auto<span>VAD</span>
           </div>
           <p class="auth-lede">
-            Create your account, choose a plan, and start AI-assisted civil takeoff and BOQ generation.
+            Create your account, choose a plan, and start AI-assisted civil takeoff and Estimate Of Quantities generation.
           </p>
         </div>
         <div class="auth-member-link">

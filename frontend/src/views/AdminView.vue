@@ -54,7 +54,7 @@ async function setRole(userId: number, role: string) {
           ['Active users', overview.active_users],
           ['Projects', overview.total_projects],
           ['Documents', overview.documents_uploaded],
-          ['BOQs', overview.boqs_generated],
+          ['Estimates Of Quantities', overview.boqs_generated],
           ['Completed jobs', overview.completed_jobs],
           ['Failed jobs', overview.failed_jobs],
           ['Storage MB', overview.storage_usage_mb],

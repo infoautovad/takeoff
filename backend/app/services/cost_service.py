@@ -88,7 +88,7 @@ def _match_rate(sor_items: list[SORItem], description: str, unit: str, item_code
 def generate_cost_estimate(db: Session, *, project_id: int, boq_id: int, user_id: int) -> CostEstimate:
     boq = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq_id, BOQ.project_id == project_id))
     if not boq:
-        raise ValueError("BOQ not found for project")
+        raise ValueError("Estimate Of Quantities not found for project")
     sor_items = list_sor(db, project_id)
     if not sor_items:
         raise ValueError("Upload a Schedule of Rates (SOR) first")

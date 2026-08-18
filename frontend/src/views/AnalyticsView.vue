@@ -105,7 +105,7 @@ const hasData = computed(() => Boolean(meta.value?.has_boqs || meta.value?.has_e
 const freshnessLabel = computed(() => {
   if (!meta.value) return ''
   const parts = [
-    `Based on ${meta.value.boq_count} BOQ${meta.value.boq_count === 1 ? '' : 's'}`,
+    `Based on ${meta.value.boq_count} ${meta.value.boq_count === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities'}`,
     `${meta.value.item_count} line item${meta.value.item_count === 1 ? '' : 's'}`,
     `${meta.value.estimate_count} estimate${meta.value.estimate_count === 1 ? '' : 's'}`,
   ]
@@ -245,7 +245,7 @@ function exportCsv() {
   lines.push(`Generated,${new Date().toISOString()}`)
   lines.push(`Range,${rangeFilter.value}`)
   lines.push(`Projects in scope,${meta.value?.project_count ?? 0}`)
-  lines.push(`BOQs,${meta.value?.boq_count ?? 0}`)
+  lines.push(`Estimates Of Quantities,${meta.value?.boq_count ?? 0}`)
   lines.push(`Estimates,${meta.value?.estimate_count ?? 0}`)
   lines.push(`Last updated,${meta.value?.last_updated || ''}`)
   lines.push('')
@@ -326,7 +326,7 @@ function exportPdf() {
       <div class="kpi"><span>Total cost</span><b>${money(d.costs.total_estimated)}</b></div>
       <div class="kpi"><span>Cut</span><b>${formatQty(d.earthwork.cut)} m³</b></div>
       <div class="kpi"><span>Fill</span><b>${formatQty(d.earthwork.fill)} m³</b></div>
-      <div class="kpi"><span>BOQs</span><b>${d.meta.boq_count}</b></div>
+      <div class="kpi"><span>Estimates Of Quantities</span><b>${d.meta.boq_count}</b></div>
     </div>
     <h2>Materials</h2>
     <table><thead><tr><th>Material</th><th>Qty</th><th>Unit</th><th>Share</th></tr></thead><tbody>${materialsRows || '<tr><td colspan="4">No materials</td></tr>'}</tbody></table>
@@ -526,7 +526,7 @@ onMounted(async () => {
           @click="openProjects"
         >
           <div class="kpi-head">
-            <span>BOQs in scope</span>
+            <span>Estimates Of Quantities in scope</span>
             <v-icon size="18">mdi-table-large</v-icon>
           </div>
           <div class="stat-value">{{ displayBoqs }}</div>
@@ -538,10 +538,10 @@ onMounted(async () => {
         <v-icon size="42" color="secondary" class="mb-3">mdi-chart-timeline-variant</v-icon>
         <h2 class="brand-font text-h6 mb-2">No analytics signal yet</h2>
         <p class="muted mb-4">
-          Generate a BOQ and run a cost estimate to populate materials, earthwork, and cost charts.
+          Generate an Estimate Of Quantities and run a cost estimate to populate materials, earthwork, and cost charts.
         </p>
         <div class="d-flex justify-center ga-2 flex-wrap">
-          <v-btn color="primary" @click="openFirstProjectOrLibrary">Generate BOQ</v-btn>
+          <v-btn color="primary" @click="openFirstProjectOrLibrary">Generate Estimate Of Quantities</v-btn>
           <v-btn color="secondary" variant="tonal" @click="openProjects">Browse projects</v-btn>
         </div>
       </div>
@@ -662,8 +662,8 @@ onMounted(async () => {
               </div>
 
               <div v-if="!sortedMaterials.length" class="empty-inline">
-                <p class="muted mb-3">Generate BOQs to populate material quantities.</p>
-                <v-btn size="small" color="primary" @click="openFirstProjectOrLibrary">Generate BOQ</v-btn>
+                <p class="muted mb-3">Generate Estimates Of Quantities to populate material quantities.</p>
+                <v-btn size="small" color="primary" @click="openFirstProjectOrLibrary">Generate Estimate Of Quantities</v-btn>
               </div>
 
               <template v-else-if="materialsView === 'chart'">
@@ -722,7 +722,7 @@ onMounted(async () => {
           <v-col cols="12" lg="5">
             <div class="surface-panel pa-5 mb-4">
               <h2 class="brand-font text-h6 mb-4">Category breakdown</h2>
-              <div v-if="!data.categories.length" class="muted">Categories appear after BOQ generation.</div>
+              <div v-if="!data.categories.length" class="muted">Categories appear after Estimate Of Quantities generation.</div>
               <div v-else class="category-list">
                 <div v-for="cat in data.categories" :key="cat.name" class="category-row">
                   <div class="d-flex justify-space-between text-body-2 mb-1">

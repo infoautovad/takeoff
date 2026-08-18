@@ -93,7 +93,7 @@ const cards = computed(() => [
   },
   {
     key: 'boqs_generated' as const,
-    label: 'BOQs generated',
+    label: 'Estimates Of Quantities generated',
     icon: 'mdi-table-large',
     hint: 'Review quantity outputs',
     to: '/projects',
@@ -131,7 +131,7 @@ const quickActions = [
   },
   {
     title: 'Search',
-    desc: 'Find drawings, BOQ items, materials',
+    desc: 'Find drawings, Estimate Of Quantities items, materials',
     icon: 'mdi-magnify',
     to: '/search',
   },
@@ -290,7 +290,7 @@ function severityIcon(kind: string) {
         </div>
         <div class="week-metric">
           <b>{{ week.boqs_generated }}</b>
-          <span>BOQs generated</span>
+          <span>Estimates Of Quantities generated</span>
         </div>
         <div class="week-metric">
           <b>{{ week.projects_touched }}</b>
@@ -442,7 +442,7 @@ function severityIcon(kind: string) {
             </div>
 
             <div v-if="!attentionItems.length" class="empty-block compact">
-              <p class="mb-0">No blockers right now. Failed files, empty BOQs, and reviews will show up here.</p>
+              <p class="mb-0">No blockers right now. Failed files, empty Estimates Of Quantities, and reviews will show up here.</p>
             </div>
 
             <div v-else class="attention-list">
@@ -476,7 +476,7 @@ function severityIcon(kind: string) {
             </div>
 
             <div v-if="!stats?.recent_activity?.length" class="empty-block compact">
-              <p class="mb-0">Activity will show here after you create projects, upload files, or generate BOQs.</p>
+              <p class="mb-0">Activity will show here after you create projects, upload files, or generate Estimates Of Quantities.</p>
             </div>
 
             <div v-else class="activity-list">
