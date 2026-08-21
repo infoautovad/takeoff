@@ -23,6 +23,38 @@ const router = createRouter({
       meta: { guest: true },
     },
     {
+      path: '/backend',
+      component: () => import('@/layouts/BackendLayout.vue'),
+      meta: { requiresAuth: true, requiresAdmin: true },
+      children: [
+        {
+          path: '',
+          name: 'backend-lab',
+          component: () => import('@/views/backend/TrainingPortalView.vue'),
+        },
+        {
+          path: 'cases/:id',
+          name: 'backend-case',
+          component: () => import('@/views/backend/TrainingCaseView.vue'),
+        },
+        {
+          path: 'cases/:id/analyze',
+          name: 'backend-case-analyze',
+          component: () => import('@/views/backend/TrainingAnalyzeView.vue'),
+        },
+        {
+          path: 'cases/:id/original',
+          name: 'backend-case-original',
+          component: () => import('@/views/backend/TrainingOriginalView.vue'),
+        },
+        {
+          path: 'cases/:id/evaluate',
+          name: 'backend-case-evaluate',
+          component: () => import('@/views/backend/TrainingEvaluateView.vue'),
+        },
+      ],
+    },
+    {
       path: '/',
       component: () => import('@/layouts/AppLayout.vue'),
       meta: { requiresAuth: true },
@@ -49,11 +81,16 @@ const router = createRouter({
 
 router.beforeEach((to) => {
   const auth = useAuthStore()
-  if (to.meta.requiresAuth && !auth.isAuthenticated) {
+  const needsAuth = to.matched.some((r) => r.meta.requiresAuth)
+  const needsAdmin = to.matched.some((r) => r.meta.requiresAdmin)
+  if (needsAuth && !auth.isAuthenticated) {
     return {
       name: 'landing',
       query: { signin: '1', redirect: to.fullPath },
     }
+  }
+  if (needsAdmin && auth.user?.role !== 'admin') {
+    return { name: 'landing' }
   }
   if (to.meta.guest && auth.isAuthenticated) {
     return { name: 'landing' }

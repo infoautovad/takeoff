@@ -31,7 +31,7 @@ const readiness = computed(() => {
   let score = 0
   if (s.total_projects > 0) score += 20
   if (s.documents_uploaded > 0) score += 25
-  if (s.boqs_generated > 0) score += 30
+  if (s.eoqs_generated > 0) score += 30
   if (s.active_projects > 0) score += 15
   if (!(s.needs_attention?.length)) score += 10
   return Math.min(100, score)
@@ -60,7 +60,7 @@ const week = computed(
   () =>
     stats.value?.week || {
       documents_uploaded: 0,
-      boqs_generated: 0,
+      eoqs_generated: 0,
       projects_touched: 0,
       failed_uploads: 0,
     },
@@ -92,7 +92,7 @@ const cards = computed(() => [
     accent: 'acid',
   },
   {
-    key: 'boqs_generated' as const,
+    key: 'eoqs_generated' as const,
     label: 'Estimates Of Quantities generated',
     icon: 'mdi-table-large',
     hint: 'Review quantity outputs',
@@ -141,7 +141,7 @@ const displayCounts = ref<Record<string, number>>({
   total_projects: 0,
   active_projects: 0,
   documents_uploaded: 0,
-  boqs_generated: 0,
+  eoqs_generated: 0,
   pending_reviews: 0,
 })
 
@@ -150,7 +150,7 @@ function animateCounts(target: DashboardStats) {
     'total_projects',
     'active_projects',
     'documents_uploaded',
-    'boqs_generated',
+    'eoqs_generated',
     'pending_reviews',
   ] as const
   const duration = 700
@@ -205,7 +205,7 @@ function openAttention(item: NonNullable<DashboardStats['needs_attention']>[numb
 function actionIcon(action: string) {
   const a = action.toLowerCase()
   if (a.includes('upload') || a.includes('document')) return 'mdi-file-upload-outline'
-  if (a.includes('boq')) return 'mdi-table-large'
+  if (a.includes('eoq')) return 'mdi-table-large'
   if (a.includes('cad')) return 'mdi-vector-polyline'
   if (a.includes('analy')) return 'mdi-brain'
   if (a.includes('share')) return 'mdi-account-multiple-outline'
@@ -215,7 +215,7 @@ function actionIcon(action: string) {
 
 function severityIcon(kind: string) {
   if (kind === 'failed_upload') return 'mdi-alert-circle-outline'
-  if (kind === 'empty_boq' || kind === 'missing_boq') return 'mdi-table-off'
+  if (kind === 'empty_eoq' || kind === 'missing_eoq') return 'mdi-table-off'
   return 'mdi-clipboard-text-clock-outline'
 }
 </script>
@@ -289,7 +289,7 @@ function severityIcon(kind: string) {
           <span>Files uploaded</span>
         </div>
         <div class="week-metric">
-          <b>{{ week.boqs_generated }}</b>
+          <b>{{ week.eoqs_generated }}</b>
           <span>Estimates Of Quantities generated</span>
         </div>
         <div class="week-metric">

@@ -10,7 +10,7 @@ from app.config import get_settings
 from app.database import get_db
 from app.models.activity import ActivityLog
 from app.models.analysis import DocumentAnalysis
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.models.document import Document, ProcessingStatus
 from app.models.project import Project
 from app.models.user import User, UserRole
@@ -56,7 +56,7 @@ def admin_overview(
             Document.processing_status.in_([ProcessingStatus.PROCESSING, ProcessingStatus.QUEUED])
         )
     ) or 0
-    boqs = db.scalar(select(func.count()).select_from(BOQ)) or 0
+    eoqs = db.scalar(select(func.count()).select_from(EOQ)) or 0
     analyses = db.scalar(select(func.count()).select_from(DocumentAnalysis)) or 0
     recent_errors = db.scalars(
         select(Document).where(Document.processing_status == ProcessingStatus.FAILED).order_by(Document.updated_at.desc()).limit(10)
@@ -70,7 +70,7 @@ def admin_overview(
         "active_users": active_users,
         "total_projects": total_projects,
         "documents_uploaded": total_docs,
-        "boqs_generated": boqs,
+        "eoqs_generated": eoqs,
         "analyses_completed": analyses,
         "pdf_processing_queue": processing_jobs,
         "completed_jobs": completed_jobs,

@@ -35,7 +35,7 @@ class CostEstimateOut(BaseModel):
 
     id: int
     project_id: int
-    boq_id: int
+    eoq_id: int
     title: str
     currency: str
     total_amount: float
@@ -53,7 +53,7 @@ def _estimate_out(row: CostEstimate) -> CostEstimateOut:
     return CostEstimateOut(
         id=row.id,
         project_id=row.project_id,
-        boq_id=row.boq_id,
+        eoq_id=row.eoq_id,
         title=row.title,
         currency=row.currency,
         total_amount=float(row.total_amount),
@@ -123,16 +123,16 @@ async def upload_sor(
     ]
 
 
-@router.post("/projects/{project_id}/estimate/{boq_id}", response_model=CostEstimateOut)
+@router.post("/projects/{project_id}/estimate/{eoq_id}", response_model=CostEstimateOut)
 def create_estimate(
     project_id: int,
-    boq_id: int,
+    eoq_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> CostEstimateOut:
     _get_accessible_project(db, project_id, current_user)
     try:
-        estimate = generate_cost_estimate(db, project_id=project_id, boq_id=boq_id, user_id=current_user.id)
+        estimate = generate_cost_estimate(db, project_id=project_id, eoq_id=eoq_id, user_id=current_user.id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

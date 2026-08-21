@@ -23,6 +23,14 @@ export async function loginUser(email: string, password: string): Promise<AuthRe
   return data
 }
 
+export async function adminLogin(adminName: string, password: string): Promise<AuthResponse> {
+  const { data } = await api.post<AuthResponse>('/auth/admin-login', {
+    admin_name: adminName,
+    password,
+  })
+  return data
+}
+
 export async function fetchMe(): Promise<User> {
   const { data } = await api.get<User>('/auth/me')
   return data

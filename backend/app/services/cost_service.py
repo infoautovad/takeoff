@@ -10,7 +10,7 @@ from openpyxl import load_workbook
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.models.cost import CostEstimate, SORItem
 
 
@@ -85,9 +85,9 @@ def _match_rate(sor_items: list[SORItem], description: str, unit: str, item_code
     return None
 
 
-def generate_cost_estimate(db: Session, *, project_id: int, boq_id: int, user_id: int) -> CostEstimate:
-    boq = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq_id, BOQ.project_id == project_id))
-    if not boq:
+def generate_cost_estimate(db: Session, *, project_id: int, eoq_id: int, user_id: int) -> CostEstimate:
+    eoq = db.scalar(select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == eoq_id, EOQ.project_id == project_id))
+    if not eoq:
         raise ValueError("Estimate Of Quantities not found for project")
     sor_items = list_sor(db, project_id)
     if not sor_items:
@@ -97,7 +97,7 @@ def generate_cost_estimate(db: Session, *, project_id: int, boq_id: int, user_id
     total = Decimal("0")
     category_totals: dict[str, float] = {}
 
-    for item in boq.items:
+    for item in eoq.items:
         match = _match_rate(sor_items, item.description, item.unit, item.item_code)
         rate = match.rate if match else None
         amount = (item.quantity * rate) if rate is not None else None
@@ -107,7 +107,7 @@ def generate_cost_estimate(db: Session, *, project_id: int, boq_id: int, user_id
             category_totals[cat] = category_totals.get(cat, 0) + float(amount)
         breakdown.append(
             {
-                "boq_item_id": item.id,
+                "eoq_item_id": item.id,
                 "description": item.description,
                 "category": item.category,
                 "unit": item.unit,
@@ -124,9 +124,9 @@ def generate_cost_estimate(db: Session, *, project_id: int, boq_id: int, user_id
 
     estimate = CostEstimate(
         project_id=project_id,
-        boq_id=boq_id,
-        title=f"Cost estimate for {boq.title}",
-        currency=boq.currency,
+        eoq_id=eoq_id,
+        title=f"Cost estimate for {eoq.title}",
+        currency=eoq.currency,
         total_amount=total,
         breakdown_json=json.dumps(
             {"items": breakdown, "category_totals": category_totals},

@@ -1,4 +1,4 @@
-"""USA CSI MasterFormat mapping for civil / roadway BOQ items.
+"""USA CSI MasterFormat mapping for civil / roadway EOQ items.
 
 Maps common civil descriptions to Division 31/32/33 (and related) CSI codes.
 Also normalizes units used in USA highway takeoffs and assigns EOQ groups.
@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from app.services.boq_groups import assign_group_category
+from app.services.eoq_groups import assign_group_category
 
 # keywords (lower) → (csi_code, default_category, preferred_unit_hint or None)
 CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
@@ -34,10 +34,11 @@ CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
     (["guardrail", "barrier", "guiderail"], "32 17 23", "Miscellaneous", "lf"),
     (["fence", "fencing"], "32 31 13", "Miscellaneous", "lf"),
     (["road marking", "pavement marking", "striping", "thermoplastic"], "32 17 23", "Traffic Signals & Signing", "lf"),
-    (["traffic sign", "road sign", "signage"], "10 14 53", "Traffic Signals & Signing", "ea"),
+    (["traffic sign", "road sign", "signage", "signing"], "10 14 53", "Traffic Signals & Signing", "sf"),
     (["signal", "traffic signal"], "34 41 13", "Traffic Signals & Signing", "ea"),
     (["landscaping", "sodding", "seeding", "turf", "fertiliz", "mulch", "erosion", "silt fence"], "32 92 00", "Erosion Control / Restoration", "sy"),
-    (["mobilization", "traffic control"], "01 71 13", "General / Traffic Control", "ls"),
+    (["mobilization"], "01 71 13", "General / Traffic Control", "ls"),
+    (["traffic control"], "01 71 13", "General / Traffic Control", "sf"),
     # Division 33 – Utilities / Drainage
     (["culvert", "box culvert"], "33 42 13", "Storm Sewer", "ea"),
     (["storm drain", "storm sewer", "drainage pipe", "drain pipe", "catch basin", "inlet"], "33 41 00", "Storm Sewer", "lf"),

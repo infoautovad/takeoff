@@ -10,15 +10,15 @@ from app.api.routes.projects import _get_accessible_project
 from app.database import get_db
 from app.models.comparison import ComparisonResult
 from app.models.user import User
-from app.services.compare_service import compare_boqs, compare_drawings
+from app.services.compare_service import compare_drawings, compare_eoqs
 from app.services.notifications import notify
 
 router = APIRouter()
 
 
-class BoqCompareIn(BaseModel):
-    left_boq_id: int
-    right_boq_id: int
+class EoqCompareIn(BaseModel):
+    left_eoq_id: int
+    right_eoq_id: int
 
 
 class DrawingCompareIn(BaseModel):
@@ -56,20 +56,20 @@ def _out(row: ComparisonResult) -> ComparisonOut:
     )
 
 
-@router.post("/projects/{project_id}/boq", response_model=ComparisonOut)
-def boq_compare(
+@router.post("/projects/{project_id}/eoq", response_model=ComparisonOut)
+def eoq_compare(
     project_id: int,
-    payload: BoqCompareIn,
+    payload: EoqCompareIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ComparisonOut:
     _get_accessible_project(db, project_id, current_user)
     try:
-        row = compare_boqs(
+        row = compare_eoqs(
             db,
             project_id=project_id,
-            left_boq_id=payload.left_boq_id,
-            right_boq_id=payload.right_boq_id,
+            left_eoq_id=payload.left_eoq_id,
+            right_eoq_id=payload.right_eoq_id,
             user_id=current_user.id,
         )
     except ValueError as exc:

@@ -1,4 +1,4 @@
-"""Bid templates: import PDF/Excel/CSV bid lists and map BOQ items onto them."""
+"""Bid templates: import PDF/Excel/CSV bid lists and map EOQ items onto them."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.bid import BidTemplate, BidTemplateLine
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.services.csi_mapper import enrich_quantity_item, looks_like_csi, normalize_csi_code, normalize_unit
 
 
@@ -117,19 +117,19 @@ def import_bid_template(
     )  # type: ignore[return-value]
 
 
-def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = None) -> dict[str, Any]:
-    boq = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq_id))
-    if not boq:
+def map_eoq_to_template(db: Session, *, eoq_id: int, template_id: int | None = None) -> dict[str, Any]:
+    eoq = db.scalar(select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == eoq_id))
+    if not eoq:
         raise ValueError("Estimate Of Quantities not found")
 
     if template_id:
         template = db.scalar(
             select(BidTemplate)
             .options(selectinload(BidTemplate.lines))
-            .where(BidTemplate.id == template_id, BidTemplate.project_id == boq.project_id)
+            .where(BidTemplate.id == template_id, BidTemplate.project_id == eoq.project_id)
         )
     else:
-        template = get_active_template(db, boq.project_id)
+        template = get_active_template(db, eoq.project_id)
     if not template:
         raise ValueError("No active bid template. Upload a bid list (PDF/Excel/CSV) first.")
 
@@ -138,8 +138,8 @@ def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = N
     unmatched = 0
     details: list[dict[str, Any]] = []
 
-    for item in boq.items:
-        # Ensure CSI on BOQ item first
+    for item in eoq.items:
+        # Ensure CSI on EOQ item first
         enriched = enrich_quantity_item(
             {
                 "description": item.description,
@@ -173,12 +173,15 @@ def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = N
             if hit.item_code:
                 item.item_code = hit.item_code
             item.unit = (hit.unit or item.unit or "UNIT").upper()
+            # Leave the Unmapped takeoff bucket once a bid line is linked
+            if (item.category or "").strip().lower() == "unmapped takeoff":
+                item.category = "Bid schedule"
             if hit.default_rate is not None and item.rate is None:
                 item.rate = Decimal(str(hit.default_rate))
                 item.amount = Decimal(str(item.quantity)) * item.rate
             details.append(
                 {
-                    "boq_item_id": item.id,
+                    "eoq_item_id": item.id,
                     "description": item.description,
                     "matched_line": hit.line_number,
                     "matched_description": hit.description,
@@ -192,9 +195,11 @@ def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = N
             item.bid_template_line_id = None
             item.bid_match_confidence = None
             item.unit = (item.unit or "UNIT").upper()
+            if (item.category or "").strip().lower() in {"", "bid schedule"}:
+                item.category = "Unmapped takeoff"
             details.append(
                 {
-                    "boq_item_id": item.id,
+                    "eoq_item_id": item.id,
                     "description": item.description,
                     "matched_line": None,
                     "csi_code": item.csi_code,
@@ -207,7 +212,7 @@ def map_boq_to_template(db: Session, *, boq_id: int, template_id: int | None = N
     return {
         "template_id": template.id,
         "template_name": template.name,
-        "boq_id": boq.id,
+        "eoq_id": eoq.id,
         "matched": matched,
         "unmatched": unmatched,
         "total": matched + unmatched,
@@ -241,16 +246,16 @@ def apply_template_to_items(items: list[dict[str, Any]], lines: list[BidTemplate
     return out
 
 
-def build_boq_items_from_template(
+def build_eoq_items_from_template(
     extracted: list[dict[str, Any]],
     lines: list[BidTemplateLine],
 ) -> list[dict[str, Any]]:
     """Match plan takeoff to the bid template — only include items needed for this project.
 
-    - Matched template lines (with evidence from plans/CAD) become BOQ rows using
+    - Matched template lines (with evidence from plans/CAD) become EOQ rows using
       the template's Standard Bid Item Number, description, and unit.
     - Unmatched takeoff rows are kept as Unmapped takeoff for engineer review.
-    - Template lines with no plan evidence are NOT dumped into the BOQ.
+    - Template lines with no plan evidence are NOT dumped into the EOQ.
     """
     sorted_lines = sorted(lines, key=lambda line: (line.sort_order, line.id))
     enriched_extracted = [enrich_quantity_item(dict(item)) for item in extracted]
@@ -328,10 +333,62 @@ def build_boq_items_from_template(
     return out
 
 
+def _normalize_token(token: str) -> str:
+    """Light normalize so barricades↔barricade, signs↔sign, temp↔temporary."""
+    t = token.lower().strip()
+    synonyms = {
+        "temp": "temporary",
+        "tmp": "temporary",
+        "misc": "miscellaneous",
+        "sig": "sign",
+        "signs": "sign",
+        "barricades": "barricade",
+        "barricading": "barricade",
+        "cones": "cone",
+        "drums": "drum",
+        "markers": "marker",
+        "markings": "marking",
+        "pavements": "pavement",
+        "pipes": "pipe",
+        "valves": "valve",
+        "hydrants": "hydrant",
+        "elbows": "elbow",
+        "bends": "bend",
+        "tees": "tee",
+        "inlets": "inlet",
+        "manholes": "manhole",
+        "each": "ea",
+        "lump": "ls",
+        "sum": "ls",
+        "lumpsum": "ls",
+        "linear": "lf",
+        "lin": "lf",
+        "sqyd": "sy",
+        "sqy": "sy",
+        "cuyd": "cy",
+        "cuy": "cy",
+    }
+    if t in synonyms:
+        t = synonyms[t]
+    roman = {"i": "1", "ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6"}
+    if t in roman:
+        t = roman[t]
+    if len(t) > 4 and t.endswith("ies"):
+        t = t[:-3] + "y"
+    elif len(t) > 3 and t.endswith("s") and not t.endswith("ss"):
+        t = t[:-1]
+    return t
+
+
 def _token_set(text: str) -> set[str]:
-    stop = {"the", "and", "for", "with", "of", "a", "an", "to", "in", "on", "or"}
+    stop = {
+        "the", "and", "for", "with", "of", "a", "an", "to", "in", "on", "or",
+        "item", "type", "per", "as", "at", "by", "from", "incl", "including",
+        "complete", "all", "work", "provide", "furnish", "install",
+    }
     tokens = re.findall(r"[a-z0-9.]+", text.lower())
-    return {t for t in tokens if len(t) > 1 and t not in stop}
+    out = {_normalize_token(t) for t in tokens if len(t) > 1 and t not in stop}
+    return {t for t in out if t and t not in stop}
 
 
 def _size_token(text: str) -> str | None:
@@ -357,6 +414,16 @@ def _units_compatible(a: str, b: str) -> bool:
     if na == "unit" or nb == "unit":
         return True
     return False
+
+
+def _description_overlap_score(desc_tokens: set[str], line_tokens: set[str]) -> float:
+    """Dice coefficient overlap 0–100 (more forgiving than one-sided ratio)."""
+    if not desc_tokens or not line_tokens:
+        return 0.0
+    inter = len(desc_tokens & line_tokens)
+    if inter <= 0:
+        return 0.0
+    return (2.0 * inter / (len(desc_tokens) + len(line_tokens))) * 100.0
 
 
 def _match_line(
@@ -397,7 +464,7 @@ def _match_line(
                 continue
             return line, 82.0, "fuzzy_description"
 
-    # Token overlap (e.g. "Aggregate Base Course" ↔ "Aggregate Base Course 3/4\")
+    # Token overlap (e.g. "Temporary Traffic Control Signs" ↔ "TEMP TRAFFIC CONTROL SIGN")
     best: BidTemplateLine | None = None
     best_score = 0.0
     for line in lines:
@@ -407,13 +474,15 @@ def _match_line(
         if desc_size and line_size and desc_size != line_size:
             continue
         line_tokens = _token_set(line.description)
-        if not desc_tokens or not line_tokens:
-            continue
-        overlap = len(desc_tokens & line_tokens) / max(len(desc_tokens), 1)
-        score = overlap * 100.0
+        score = _description_overlap_score(desc_tokens, line_tokens)
         if desc_size and line_size and desc_size == line_size:
             score = min(100.0, score + 12.0)
-        if score >= 65 and score > best_score:
+        # Require at least 2 meaningful shared tokens when descriptions are long
+        shared = len(desc_tokens & line_tokens)
+        if shared < 2 and max(len(desc_tokens), len(line_tokens)) >= 4:
+            continue
+        # 48% Dice is enough for near-paraphrases after stemming/synonyms
+        if score >= 48 and score > best_score:
             best = line
             best_score = score
     if best:

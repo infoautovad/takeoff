@@ -76,6 +76,8 @@ def parse_dxf(path: Path) -> dict[str, Any]:
                     "area": area,
                     "closed": closed,
                     "vertices": len(pts),
+                    # Keep geometry for station projection (cap vertices)
+                    "points": [[round(p[0], 4), round(p[1], 4)] for p in pts[:400]],
                 }
             )
 
@@ -109,9 +111,19 @@ def parse_dxf(path: Path) -> dict[str, Any]:
             )
 
         elif dxftype == "TEXT":
-            texts.append({"layer": layer, "text": entity.dxf.text})
+            insert = None
+            try:
+                insert = [float(entity.dxf.insert.x), float(entity.dxf.insert.y)]
+            except Exception:
+                insert = None
+            texts.append({"layer": layer, "text": entity.dxf.text, "insert": insert})
         elif dxftype == "MTEXT":
-            texts.append({"layer": layer, "text": entity.text})
+            insert = None
+            try:
+                insert = [float(entity.dxf.insert.x), float(entity.dxf.insert.y)]
+            except Exception:
+                insert = None
+            texts.append({"layer": layer, "text": entity.text, "insert": insert})
 
         elif "DIMENSION" in dxftype:
             measurement = None
@@ -132,7 +144,7 @@ def parse_dxf(path: Path) -> dict[str, Any]:
     tables: list[dict[str, Any]] = []
     for block in doc.blocks:
         upper = block.name.upper()
-        if any(k in upper for k in ("TABLE", "QTY", "BOQ", "SCHEDULE")):
+        if any(k in upper for k in ("TABLE", "QTY", "EOQ", "BOQ", "SCHEDULE")):
             tables.append({"name": block.name, "entity_count": len(block)})
 
     units = None

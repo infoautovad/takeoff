@@ -33,6 +33,25 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function adminLogin(adminName: string, password: string) {
+    loading.value = true
+    error.value = null
+    try {
+      const data = await authApi.adminLogin(adminName, password)
+      if (data.user.role !== 'admin') {
+        error.value = 'Not an admin account'
+        throw new Error(error.value)
+      }
+      persist(data.access_token, data.user)
+      return data.user
+    } catch (err: unknown) {
+      error.value = extractError(err, 'Admin sign in failed')
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function register(payload: {
     email: string
     full_name: string
@@ -70,7 +89,7 @@ export const useAuthStore = defineStore('auth', () => {
     localStorage.removeItem('cm_user')
   }
 
-  return { token, user, loading, error, isAuthenticated, login, register, refreshMe, logout }
+  return { token, user, loading, error, isAuthenticated, login, adminLogin, register, refreshMe, logout }
 })
 
 function extractError(err: unknown, fallback: string): string {

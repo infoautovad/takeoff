@@ -17,8 +17,8 @@ export async function uploadSor(projectId: number, file: File) {
   return data
 }
 
-export async function createEstimate(projectId: number, boqId: number) {
-  const { data } = await api.post(`/cost/projects/${projectId}/estimate/${boqId}`, null, {
+export async function createEstimate(projectId: number, eoqId: number) {
+  const { data } = await api.post(`/cost/projects/${projectId}/estimate/${eoqId}`, null, {
     timeout: NO_HTTP_TIMEOUT,
   })
   return data as {

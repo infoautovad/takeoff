@@ -14,7 +14,7 @@ from app.services.bid_service import (
     delete_template,
     import_bid_template,
     list_templates,
-    map_boq_to_template,
+    map_eoq_to_template,
     set_active_template,
 )
 from app.services.csi_mapper import list_csi_catalog
@@ -147,7 +147,7 @@ async def upload_template(
         project_id=project_id,
         title="Bid template uploaded",
         message=f"Imported {len(template.lines)} bid line(s) from {file.filename}",
-        category="boq",
+        category="eoq",
     )
     return _template_out(template)
 
@@ -181,17 +181,17 @@ def remove_template(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
-@router.post("/projects/{project_id}/boq/{boq_id}/map")
-def map_boq(
+@router.post("/projects/{project_id}/eoq/{eoq_id}/map")
+def map_eoq(
     project_id: int,
-    boq_id: int,
+    eoq_id: int,
     template_id: int | None = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> dict:
     _get_accessible_project(db, project_id, current_user)
     try:
-        result = map_boq_to_template(db, boq_id=boq_id, template_id=template_id)
+        result = map_eoq_to_template(db, eoq_id=eoq_id, template_id=template_id)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     log_activity(
@@ -199,6 +199,6 @@ def map_boq(
         user_id=current_user.id,
         project_id=project_id,
         action="bid_map",
-        message=f"Mapped Estimate Of Quantities {boq_id} to bid template ({result['matched']}/{result['total']} matched)",
+        message=f"Mapped Estimate Of Quantities {eoq_id} to bid template ({result['matched']}/{result['total']} matched)",
     )
     return result

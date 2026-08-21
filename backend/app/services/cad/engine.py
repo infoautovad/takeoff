@@ -77,7 +77,7 @@ def process_cad_document(db: Session, document: Document) -> CadModel:
         model.entities_json = json.dumps(
             {
                 "lines": (extraction.get("lines") or [])[:200],
-                "polylines": (extraction.get("polylines") or [])[:200],
+                "polylines": (extraction.get("polylines") or [])[:800],
                 "circles": (extraction.get("circles") or [])[:100],
                 "hatches": (extraction.get("hatches") or [])[:100],
                 "alignments": extraction.get("alignments") or [],
@@ -131,6 +131,25 @@ def process_cad_document(db: Session, document: Document) -> CadModel:
                 texts=extraction.get("texts") or [],
             )
             model.engine = f"{model.engine}+openai"
+
+        from app.services.traffic_control import consolidate_traffic_control_signs
+
+        quantities, _tc_meta = consolidate_traffic_control_signs(
+            quantities, allow_online_refresh=True
+        )
+
+        from app.services.cad.utility_stationing import build_utilities_detail
+
+        try:
+            utilities_detail = build_utilities_detail(extraction)
+        except Exception as exc:  # noqa: BLE001
+            utilities_detail = {
+                "segments": [],
+                "connections": [],
+                "summary": {"error": str(exc)[:240]},
+                "alignment": {"name": None, "source": "error"},
+            }
+        model.utilities_detail_json = json.dumps(utilities_detail, ensure_ascii=True)
 
         model.quantities_json = json.dumps(quantities, ensure_ascii=True)
         model.status = CadJobStatus.QUANTIFIED

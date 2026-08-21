@@ -7,15 +7,15 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.analysis import DocumentAnalysis
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.models.comparison import ComparisonResult
 from app.models.document import Document
 from app.services.processing import load_findings
 
 
-def compare_boqs(db: Session, *, project_id: int, left_boq_id: int, right_boq_id: int, user_id: int) -> ComparisonResult:
-    left = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == left_boq_id, BOQ.project_id == project_id))
-    right = db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == right_boq_id, BOQ.project_id == project_id))
+def compare_eoqs(db: Session, *, project_id: int, left_eoq_id: int, right_eoq_id: int, user_id: int) -> ComparisonResult:
+    left = db.scalar(select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == left_eoq_id, EOQ.project_id == project_id))
+    right = db.scalar(select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == right_eoq_id, EOQ.project_id == project_id))
     if not left or not right:
         raise ValueError("Both Estimates Of Quantities must belong to this project")
 
@@ -60,7 +60,7 @@ def compare_boqs(db: Session, *, project_id: int, left_boq_id: int, right_boq_id
     }
     row = ComparisonResult(
         project_id=project_id,
-        comparison_type="boq",
+        comparison_type="eoq",
         left_label=f"Estimate Of Quantities v{left.version}",
         right_label=f"Estimate Of Quantities v{right.version}",
         summary=summary,

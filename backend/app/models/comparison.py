@@ -11,7 +11,7 @@ class ComparisonResult(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    comparison_type: Mapped[str] = mapped_column(String(50), nullable=False)  # boq | drawing
+    comparison_type: Mapped[str] = mapped_column(String(50), nullable=False)  # eoq | drawing
     left_label: Mapped[str] = mapped_column(String(255), nullable=False)
     right_label: Mapped[str] = mapped_column(String(255), nullable=False)
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -1,12 +1,12 @@
 import api from './client'
 import { NO_HTTP_TIMEOUT } from './timeouts'
 
-export async function compareBoqs(projectId: number, leftBoqId: number, rightBoqId: number) {
+export async function compareEoqs(projectId: number, leftEoqId: number, rightEoqId: number) {
   const { data } = await api.post(
-    `/compare/projects/${projectId}/boq`,
+    `/compare/projects/${projectId}/eoq`,
     {
-      left_boq_id: leftBoqId,
-      right_boq_id: rightBoqId,
+      left_eoq_id: leftEoqId,
+      right_eoq_id: rightEoqId,
     },
     { timeout: NO_HTTP_TIMEOUT },
   )

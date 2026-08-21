@@ -7,9 +7,9 @@ This is the frozen module map for the product, including the **CAD & Civil 3D In
 | Module | Status | What it does |
 | --- | --- | --- |
 | 1. Foundation | Done | Auth, projects, uploads, storage, DB |
-| 2. Document AI Core | Done | PDF/Excel/CSV/image extract → CSI codes, units, confidence → chat → BOQ |
+| 2. Document AI Core | Done | PDF/Excel/CSV/image extract → CSI codes, units, confidence → chat → EOQ |
 | 3. Trust Layer | Done (MVP) | Source refs, confidence, Open Source viewer jump |
-| 4. Professional Tools | Done | Excel/CSV export, cost/SOR, **bid templates**, BOQ compare, drawing compare |
+| 4. Professional Tools | Done | Excel/CSV export, cost/SOR, **bid templates**, EOQ compare, drawing compare |
 | 5. Product Layer | Done | Dashboard, analytics, reports, approvals, notifications, search, team share |
 | 6. Operations | Done | Admin dashboard, health, jobs, storage metrics |
 | 7. **CAD & Civil 3D Intelligence Engine** | **Done (wired)** | DXF/LandXML local; DWG via Autodesk APS; optional OpenAI quantity enrichment |
@@ -37,7 +37,7 @@ Quantity Engine (length / area / count by layer & block rules)
 Optional OpenAI enrichment (OPENAI_API_KEY + CAD_OPENAI_ENRICHMENT)
         │
         ▼
-BOQ merge + Excel/CSV + confidence + source refs
+EOQ merge + Excel/CSV + confidence + source refs
 ```
 
 ### Formats

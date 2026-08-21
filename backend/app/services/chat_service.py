@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.analysis import ChatMessage, DocumentAnalysis
-from app.models.boq import BOQ, BOQItem
+from app.models.eoq import EOQ, EOQItem
 from app.models.document import Document
 from app.models.project import Project
 from app.services.ai_analysis import answer_engineering_question
@@ -29,7 +29,7 @@ def build_project_context(db: Session, project: Project) -> str:
         f"Description: {project.description or 'N/A'}",
         "",
         "You are AutoVAD inside the AutoVAD web app. "
-        "The user is logged in. Actions like analyze, generate BOQ, and export Excel "
+        "The user is logged in. Actions like analyze, generate EOQ, and export Excel "
         "are executed by the app agent — do not say you cannot update Excel; "
         "the agent handles downloads.",
     ]
@@ -56,13 +56,13 @@ def build_project_context(db: Session, project: Project) -> str:
             parts.append("EXTRACTED_TEXT_EXCERPT:")
             parts.append(analysis.extracted_text[:8000])
 
-    boqs = db.scalars(select(BOQ).where(BOQ.project_id == project.id).order_by(BOQ.version.desc())).all()
-    for boq in boqs[:2]:
-        parts.append(f"\nBOQ v{boq.version}: {boq.title} ({boq.status.value})")
-        items = db.scalars(select(BOQItem).where(BOQItem.boq_id == boq.id)).all()
+    eoqs = db.scalars(select(EOQ).where(EOQ.project_id == project.id).order_by(EOQ.version.desc())).all()
+    for eoq in eoqs[:2]:
+        parts.append(f"\nEOQ v{eoq.version}: {eoq.title} ({eoq.status.value})")
+        items = db.scalars(select(EOQItem).where(EOQItem.eoq_id == eoq.id)).all()
         for item in items:
             parts.append(
-                f"BOQ_ITEM {item.item_number}: CSI={item.csi_code or item.item_code or '—'} | "
+                f"EOQ_ITEM {item.item_number}: CSI={item.csi_code or item.item_code or '—'} | "
                 f"{item.description} | {float(item.quantity):.2f} {item.unit} | "
                 f"source={item.source_reference} | confidence={item.confidence}"
             )

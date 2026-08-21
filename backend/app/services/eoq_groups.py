@@ -1,6 +1,6 @@
-"""Municipal Estimate of Quantities section grouping.
+"""Municipal Estimate Of Quantities section grouping.
 
-Groups BOQ lines the way agency bid schedules / EOQ sheets do
+Groups EOQ lines the way agency bid schedules / EOQ sheets do
 (Removals, Grading, Watermain, Sanitary Sewer, …), so UI and exports
 show bold section headers with items underneath.
 """
@@ -12,7 +12,7 @@ from typing import Any, Iterable, TypeVar
 T = TypeVar("T")
 
 # Display order matches typical municipal EOQ / bid schedule flow.
-BOQ_GROUP_ORDER: list[str] = [
+EOQ_GROUP_ORDER: list[str] = [
     "General / Traffic Control",
     "Removals",
     "Clearing & Grubbing",
@@ -323,12 +323,12 @@ _CATEGORY_ALIASES: dict[str, str] = {
 }
 
 
-def resolve_boq_group(
+def resolve_eoq_group(
     *,
     description: str | None = None,
     category: str | None = None,
 ) -> str:
-    """Return canonical EOQ section name for a BOQ line."""
+    """Return canonical EOQ section name for an EOQ line."""
     cat = (category or "").strip()
     if cat:
         alias = _CATEGORY_ALIASES.get(cat.lower())
@@ -339,7 +339,7 @@ def resolve_boq_group(
                 if refined:
                     return refined
             return alias
-        if cat in BOQ_GROUP_ORDER:
+        if cat in EOQ_GROUP_ORDER:
             return cat
 
     matched = _match_description(f"{description or ''} {category or ''}")
@@ -362,22 +362,22 @@ def _match_description(text: str) -> str | None:
 
 def group_sort_key(group: str) -> tuple[int, str]:
     try:
-        return (BOQ_GROUP_ORDER.index(group), group)
+        return (EOQ_GROUP_ORDER.index(group), group)
     except ValueError:
-        return (len(BOQ_GROUP_ORDER), group)
+        return (len(EOQ_GROUP_ORDER), group)
 
 
 def group_items(items: Iterable[T], *, get_description, get_category) -> list[tuple[str, list[T]]]:
     """Partition items into ordered (group_name, items) sections. Empty groups omitted."""
     buckets: dict[str, list[T]] = {}
     for item in items:
-        group = resolve_boq_group(
+        group = resolve_eoq_group(
             description=get_description(item),
             category=get_category(item),
         )
         buckets.setdefault(group, []).append(item)
     ordered: list[tuple[str, list[T]]] = []
-    for name in BOQ_GROUP_ORDER:
+    for name in EOQ_GROUP_ORDER:
         if name in buckets and buckets[name]:
             ordered.append((name, buckets.pop(name)))
     for name in sorted(buckets.keys()):
@@ -392,9 +392,9 @@ def assign_group_category(item: dict[str, Any]) -> dict[str, Any]:
     # Preserve unmapped marker as group
     if str(out.get("bid_match_method") or "") == "unmapped" or str(out.get("category") or "").lower() == "unmapped takeoff":
         out["category"] = "Unmapped Takeoff"
-        out["boq_group"] = "Unmapped Takeoff"
+        out["eoq_group"] = "Unmapped Takeoff"
         return out
-    group = resolve_boq_group(description=str(out.get("description") or ""), category=out.get("category"))
+    group = resolve_eoq_group(description=str(out.get("description") or ""), category=out.get("category"))
     out["category"] = group
-    out["boq_group"] = group
+    out["eoq_group"] = group
     return out

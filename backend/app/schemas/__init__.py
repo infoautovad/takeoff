@@ -1,7 +1,7 @@
 from app.schemas.auth import Token, UserCreate, UserLogin, UserOut
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectUpdate
 from app.schemas.document import DocumentOut
-from app.schemas.boq import BOQItemOut, BOQOut
+from app.schemas.eoq import EOQItemOut, EOQOut
 from app.schemas.dashboard import DashboardStats
 
 __all__ = [
@@ -13,7 +13,7 @@ __all__ = [
     "ProjectOut",
     "ProjectUpdate",
     "DocumentOut",
-    "BOQOut",
-    "BOQItemOut",
+    "EOQOut",
+    "EOQItemOut",
     "DashboardStats",
 ]

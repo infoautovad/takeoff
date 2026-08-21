@@ -27,7 +27,7 @@ export interface BidTemplate {
 export interface BidMapResult {
   template_id: number
   template_name: string
-  boq_id: number
+  eoq_id: number
   matched: number
   unmatched: number
   total: number
@@ -39,7 +39,12 @@ export async function listBidTemplates(projectId: number): Promise<BidTemplate[]
   return data
 }
 
-export async function uploadBidTemplate(projectId: number, file: File, name?: string): Promise<BidTemplate> {
+export async function uploadBidTemplate(
+  projectId: number,
+  file: File,
+  name?: string,
+  onProgress?: (percent: number) => void,
+): Promise<BidTemplate> {
   const form = new FormData()
   form.append('file', file)
   if (name) form.append('name', name)
@@ -47,7 +52,18 @@ export async function uploadBidTemplate(projectId: number, file: File, name?: st
     timeout: NO_HTTP_TIMEOUT,
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
+    onUploadProgress: (event) => {
+      if (!onProgress) return
+      if (typeof event.progress === 'number') {
+        onProgress(Math.min(100, Math.round(event.progress * 100)))
+        return
+      }
+      if (event.total) {
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    },
   })
+  onProgress?.(100)
   return data
 }
 
@@ -60,8 +76,8 @@ export async function deleteBidTemplate(projectId: number, templateId: number): 
   await api.delete(`/bid/projects/${projectId}/templates/${templateId}`)
 }
 
-export async function mapBoqToBid(projectId: number, boqId: number, templateId?: number): Promise<BidMapResult> {
-  const { data } = await api.post<BidMapResult>(`/bid/projects/${projectId}/boq/${boqId}/map`, null, {
+export async function mapEoqToBid(projectId: number, eoqId: number, templateId?: number): Promise<BidMapResult> {
+  const { data } = await api.post<BidMapResult>(`/bid/projects/${projectId}/eoq/${eoqId}/map`, null, {
     params: templateId ? { template_id: templateId } : undefined,
     timeout: NO_HTTP_TIMEOUT,
   })

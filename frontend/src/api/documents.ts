@@ -12,6 +12,7 @@ export async function uploadDocument(
   file: File,
   revisionLabel?: string,
   notes?: string,
+  onProgress?: (percent: number) => void,
 ): Promise<DocumentItem> {
   const form = new FormData()
   form.append('file', file)
@@ -21,7 +22,18 @@ export async function uploadDocument(
     timeout: NO_HTTP_TIMEOUT,
     maxBodyLength: Infinity,
     maxContentLength: Infinity,
+    onUploadProgress: (event) => {
+      if (!onProgress) return
+      if (typeof event.progress === 'number') {
+        onProgress(Math.min(100, Math.round(event.progress * 100)))
+        return
+      }
+      if (event.total) {
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    },
   })
+  onProgress?.(100)
   return data
 }
 

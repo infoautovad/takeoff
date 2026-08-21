@@ -6,6 +6,6 @@ export async function globalSearch(q: string) {
     query: string
     projects: Array<{ id: number; name: string; status: string; location: string | null }>
     documents: Array<{ id: number; project_id: number; filename: string; status: string }>
-    boq_items: Array<{ id: number; boq_id: number; description: string; quantity: number; unit: string; category: string | null }>
+    eoq_items: Array<{ id: number; eoq_id: number; description: string; quantity: number; unit: string; category: string | null }>
   }
 }

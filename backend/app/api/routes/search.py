@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models.boq import BOQ, BOQItem
+from app.models.eoq import EOQ, EOQItem
 from app.models.document import Document
 from app.models.project import Project, ProjectMember
 from app.models.user import User
@@ -33,11 +33,11 @@ def global_search(
         select(Document).where(Document.project_id.in_(accessible), Document.original_filename.ilike(like)).limit(20)
     ).all()
     items = db.scalars(
-        select(BOQItem)
-        .join(BOQ, BOQ.id == BOQItem.boq_id)
+        select(EOQItem)
+        .join(EOQ, EOQ.id == EOQItem.eoq_id)
         .where(
-            BOQ.project_id.in_(accessible),
-            or_(BOQItem.description.ilike(like), BOQItem.category.ilike(like), BOQItem.item_code.ilike(like)),
+            EOQ.project_id.in_(accessible),
+            or_(EOQItem.description.ilike(like), EOQItem.category.ilike(like), EOQItem.item_code.ilike(like)),
         )
         .limit(30)
     ).all()
@@ -49,10 +49,10 @@ def global_search(
             {"id": d.id, "project_id": d.project_id, "filename": d.original_filename, "status": d.processing_status.value}
             for d in documents
         ],
-        "boq_items": [
+        "eoq_items": [
             {
                 "id": i.id,
-                "boq_id": i.boq_id,
+                "eoq_id": i.eoq_id,
                 "description": i.description,
                 "quantity": float(i.quantity),
                 "unit": i.unit,

@@ -28,7 +28,7 @@ class CostEstimate(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), nullable=False, index=True)
-    boq_id: Mapped[int] = mapped_column(ForeignKey("boqs.id", ondelete="CASCADE"), nullable=False)
+    eoq_id: Mapped[int] = mapped_column("boq_id", ForeignKey("boqs.id", ondelete="CASCADE"), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     currency: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(18, 4), default=Decimal("0"), nullable=False)

@@ -35,6 +35,11 @@ const signInPassword = ref('')
 const showSignInPassword = ref(false)
 const pendingRedirect = ref<string | null>(null)
 
+const adminSignInOpen = ref(false)
+const adminName = ref('')
+const adminPassword = ref('')
+const showAdminPassword = ref(false)
+
 const displayName = computed(() => auth.user?.full_name || auth.user?.email || 'User')
 const avatarInitial = computed(() => displayName.value.trim().charAt(0).toUpperCase() || 'U')
 const creditPreview = computed(() => (Math.max(0, Number(extraCredits.value) || 0) * 0.3).toFixed(2))
@@ -69,6 +74,24 @@ function closeSignIn() {
   auth.error = null
 }
 
+function openAdminSignIn() {
+  closeSignIn()
+  closeAccountMenu()
+  if (auth.isAuthenticated && auth.user?.role === 'admin') {
+    router.push('/backend')
+    return
+  }
+  auth.error = null
+  adminSignInOpen.value = true
+}
+
+function closeAdminSignIn() {
+  adminSignInOpen.value = false
+  showAdminPassword.value = false
+  adminPassword.value = ''
+  auth.error = null
+}
+
 function goLogin(redirect?: string) {
   openSignIn(redirect)
 }
@@ -87,6 +110,17 @@ async function submitSignIn() {
     if (route.query.signin || route.query.redirect) {
       router.replace({ path: '/', query: {} })
     }
+  } catch {
+    // auth.error already set
+  }
+}
+
+async function submitAdminSignIn() {
+  try {
+    await auth.adminLogin(adminName.value.trim(), adminPassword.value)
+    adminPassword.value = ''
+    closeAdminSignIn()
+    router.push('/backend')
   } catch {
     // auth.error already set
   }
@@ -814,7 +848,10 @@ onUnmounted(() => {
         <span>AUTO<span>VAD</span></span>
       </a>
       <p>More bids. Less counting. AI quantity intelligence for civil construction.</p>
-      <span>© 2026 AUTOVAD</span>
+      <div class="footer-end">
+        <button type="button" class="footer-admin" @click="openAdminSignIn">Admin</button>
+        <span>© 2026 AUTOVAD</span>
+      </div>
     </footer>
 
     <div
@@ -892,6 +929,73 @@ onUnmounted(() => {
           <span>Already a member?</span>
           <strong>Use the form above to sign in.</strong>
         </div>
+      </div>
+    </aside>
+
+    <div
+      class="signin-scrim"
+      :class="{ open: adminSignInOpen }"
+      aria-hidden="true"
+      @click="closeAdminSignIn"
+    />
+    <aside
+      class="signin-drawer admin-drawer"
+      :class="{ open: adminSignInOpen }"
+      aria-label="Admin sign in"
+      :aria-hidden="!adminSignInOpen"
+    >
+      <div class="signin-tab-edge admin-tab" aria-hidden="true">ADMIN</div>
+
+      <div class="signin-drawer-inner">
+        <div class="signin-drawer-head">
+          <div class="signin-brand">
+            <span class="signin-mark" aria-hidden="true"><i /><i /><i /></span>
+            <div>
+              <div class="signin-kicker">AUTO<span>VAD</span> · ADMIN</div>
+              <h2>Portal access</h2>
+            </div>
+          </div>
+          <button type="button" class="signin-close" aria-label="Close admin sign in" @click="closeAdminSignIn">×</button>
+        </div>
+
+        <p class="signin-lede">
+          Separate admin sign-in for the Training Lab and system portal. This is not the regular user login.
+        </p>
+
+        <form class="signin-form" @submit.prevent="submitAdminSignIn">
+          <div v-if="auth.error" class="signin-error">{{ auth.error }}</div>
+
+          <label>
+            <span>Admin name</span>
+            <input
+              v-model="adminName"
+              type="text"
+              autocomplete="username"
+              required
+              placeholder="Admin name"
+            />
+          </label>
+
+          <label>
+            <span>Password</span>
+            <div class="signin-password">
+              <input
+                v-model="adminPassword"
+                :type="showAdminPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                required
+                placeholder="Admin password"
+              />
+              <button type="button" @click="showAdminPassword = !showAdminPassword">
+                {{ showAdminPassword ? 'Hide' : 'Show' }}
+              </button>
+            </div>
+          </label>
+
+          <button type="submit" class="signin-submit" :disabled="auth.loading">
+            {{ auth.loading ? 'Signing in…' : 'Sign in to admin portal' }}
+          </button>
+        </form>
       </div>
     </aside>
   </main>

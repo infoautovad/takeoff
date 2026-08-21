@@ -40,4 +40,4 @@ class ProjectOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     document_count: int = 0
-    boq_count: int = 0
+    eoq_count: int = 0

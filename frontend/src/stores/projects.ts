@@ -70,8 +70,14 @@ export const useProjectsStore = defineStore('projects', () => {
     if (currentProject.value?.id === id) currentProject.value = null
   }
 
-  async function upload(projectId: number, file: File, revisionLabel?: string, notes?: string) {
-    const doc = await documentsApi.uploadDocument(projectId, file, revisionLabel, notes)
+  async function upload(
+    projectId: number,
+    file: File,
+    revisionLabel?: string,
+    notes?: string,
+    onProgress?: (percent: number) => void,
+  ) {
+    const doc = await documentsApi.uploadDocument(projectId, file, revisionLabel, notes, onProgress)
     documents.value.unshift(doc)
     if (currentProject.value?.id === projectId) {
       currentProject.value.document_count += 1

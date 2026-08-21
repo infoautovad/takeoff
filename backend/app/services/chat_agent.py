@@ -9,12 +9,12 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.models.cad import CadModel
 from app.models.document import Document
 from app.models.project import Project
-from app.services.bid_service import get_active_template, list_templates, map_boq_to_template
-from app.services.boq_service import generate_boq_for_project, list_project_boqs
+from app.services.bid_service import get_active_template, list_templates, map_eoq_to_template
+from app.services.eoq_service import generate_eoq_for_project, list_project_eoqs
 from app.services.cad.engine import detect_cad_format, process_cad_document
 from app.services.cost_service import generate_cost_estimate, list_sor
 from app.services.processing import process_document, process_project_documents
@@ -37,27 +37,27 @@ class ActionResult:
 # Intent keywords → action
 _ACTION_PATTERNS: list[tuple[str, list[str]]] = [
     (
-        "export_boq_excel",
+        "export_eoq_excel",
         [
-            r"\b(update|export|download|generate|create|make|give|send)\b.*\b(boq|bill of quantities).*\b(excel|xlsx|spreadsheet)\b",
-            r"\b(excel|xlsx)\b.*\b(boq|bill of quantities)\b",
-            r"\bupdate\b.*\b(my\s+)?(boq\s+)?excel\b",
-            r"\bboq\b.*\bexcel\b",
-            r"\bexcel\b.*\bboq\b",
+            r"\b(update|export|download|generate|create|make|give|send)\b.*\b(eoq|estimate of quantities|boq|bill of quantities).*\b(excel|xlsx|spreadsheet)\b",
+            r"\b(excel|xlsx)\b.*\b(eoq|estimate of quantities|boq|bill of quantities)\b",
+            r"\bupdate\b.*\b(my\s+)?(eoq\s+|boq\s+)?excel\b",
+            r"\b(eoq|boq)\b.*\bexcel\b",
+            r"\bexcel\b.*\b(eoq|boq)\b",
         ],
     ),
     (
-        "export_boq_csv",
+        "export_eoq_csv",
         [
-            r"\b(export|download|generate)\b.*\b(boq|bill of quantities).*\bcsv\b",
-            r"\bcsv\b.*\b(boq|bill of quantities)\b",
+            r"\b(export|download|generate)\b.*\b(eoq|estimate of quantities|boq|bill of quantities).*\bcsv\b",
+            r"\bcsv\b.*\b(eoq|estimate of quantities|boq|bill of quantities)\b",
         ],
     ),
     (
-        "generate_boq",
+        "generate_eoq",
         [
-            r"\b(generate|create|build|make|refresh|update)\b.*\b(boq|bill of quantities)\b",
-            r"\bboq\b.*\b(generate|create|refresh|update)\b",
+            r"\b(generate|create|build|make|refresh|update)\b.*\b(eoq|estimate of quantities|boq|bill of quantities)\b",
+            r"\b(eoq|boq)\b.*\b(generate|create|refresh|update)\b",
         ],
     ),
     (
@@ -101,7 +101,7 @@ _ACTION_PATTERNS: list[tuple[str, list[str]]] = [
         "project_status",
         [
             r"\b(status|summary|overview|what('s| is) ready|progress)\b",
-            r"\bwhat\s+(do\s+i\s+have|files|documents|boq)\b",
+            r"\bwhat\s+(do\s+i\s+have|files|documents|eoq|boq)\b",
         ],
     ),
     (
@@ -128,13 +128,13 @@ def plan_actions(question: str, documents: list[Document]) -> list[PlannedAction
                     planned.append(PlannedAction("analyze_one", {"document_id": matched_docs[0].id, "filename": matched_docs[0].original_filename}))
                 else:
                     planned.append(PlannedAction("analyze_all", {}))
-            elif name == "export_boq_excel":
-                # Refresh BOQ first so Excel is up to date
-                planned.append(PlannedAction("generate_boq", {}))
-                planned.append(PlannedAction("export_boq_excel", {}))
-            elif name == "export_boq_csv":
-                planned.append(PlannedAction("generate_boq", {}))
-                planned.append(PlannedAction("export_boq_csv", {}))
+            elif name == "export_eoq_excel":
+                # Refresh EOQ first so Excel is up to date.
+                planned.append(PlannedAction("generate_eoq", {}))
+                planned.append(PlannedAction("export_eoq_excel", {}))
+            elif name == "export_eoq_csv":
+                planned.append(PlannedAction("generate_eoq", {}))
+                planned.append(PlannedAction("export_eoq_csv", {}))
             else:
                 planned.append(PlannedAction(name, {}))
             break
@@ -198,7 +198,7 @@ def format_action_answer(results: list[ActionResult], *, question: str) -> tuple
                 )
 
     # Extra guidance for excel update requests
-    if any(r.action == "export_boq_excel" and r.ok for r in results):
+    if any(r.action == "export_eoq_excel" and r.ok for r in results):
         lines.append("")
         lines.append(
             "Your Estimate Of Quantities Excel is ready — use the **Download Excel** button below "
@@ -234,12 +234,12 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
 
     if name == "project_status":
         docs = list(db.scalars(select(Document).where(Document.project_id == project.id)).all())
-        boqs = list_project_boqs(db, project.id)
+        eoqs = list_project_eoqs(db, project.id)
         cad = list(db.scalars(select(CadModel).where(CadModel.project_id == project.id)).all())
         templates = list_templates(db, project.id)
         sor = list_sor(db, project.id)
         msg = (
-            f"{len(docs)} document(s), {len(boqs)} Estimate Of Quantities version(s), "
+            f"{len(docs)} document(s), {len(eoqs)} Estimate Of Quantities version(s), "
             f"{len(cad)} CAD model(s), {len(templates)} bid template(s), {len(sor)} SOR item(s)."
         )
         return ActionResult(
@@ -248,7 +248,7 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
             message=msg,
             data={
                 "documents": len(docs),
-                "boqs": len(boqs),
+                "eoqs": len(eoqs),
                 "cad_models": len(cad),
                 "bid_templates": len(templates),
                 "sor_items": len(sor),
@@ -317,35 +317,35 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
             },
         )
 
-    if name == "generate_boq":
-        boq = generate_boq_for_project(db, project, user_id)
+    if name == "generate_eoq":
+        eoq = generate_eoq_for_project(db, project, user_id)
         return ActionResult(
             action=name,
             ok=True,
-            message=f"Generated {boq.title} with {len(boq.items)} item(s).",
-            data={"boq_id": boq.id, "version": boq.version, "items": len(boq.items)},
+            message=f"Generated {eoq.title} with {len(eoq.items)} item(s).",
+            data={"eoq_id": eoq.id, "version": eoq.version, "items": len(eoq.items)},
         )
 
-    if name in {"export_boq_excel", "export_boq_csv"}:
-        boq = db.scalar(
-            select(BOQ)
-            .options(selectinload(BOQ.items))
-            .where(BOQ.project_id == project.id)
-            .order_by(BOQ.version.desc())
+    if name in {"export_eoq_excel", "export_eoq_csv"}:
+        eoq = db.scalar(
+            select(EOQ)
+            .options(selectinload(EOQ.items))
+            .where(EOQ.project_id == project.id)
+            .order_by(EOQ.version.desc())
         )
-        if not boq:
+        if not eoq:
             return ActionResult(action=name, ok=False, message="No Estimate Of Quantities found. Generate Estimate Of Quantities first.")
-        kind = "excel" if name == "export_boq_excel" else "csv"
+        kind = "excel" if name == "export_eoq_excel" else "csv"
         ext = "xlsx" if kind == "excel" else "csv"
-        filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{project.id}.{ext}"
+        filename = f"AutoVAD_Estimate_Of_Quantities_v{eoq.version}_{project.id}.{ext}"
         return ActionResult(
             action=name,
             ok=True,
-            message=f"Estimate Of Quantities v{boq.version} {kind.upper()} is ready for download ({len(boq.items)} items).",
+            message=f"Estimate Of Quantities v{eoq.version} {kind.upper()} is ready for download ({len(eoq.items)} items).",
             data={
-                "boq_id": boq.id,
-                "version": boq.version,
-                "download": f"/api/boq/{boq.id}/export/{kind}",
+                "eoq_id": eoq.id,
+                "version": eoq.version,
+                "download": f"/api/eoq/{eoq.id}/export/{kind}",
                 "download_label": f"Download Estimate Of Quantities {kind.upper()}",
                 "filename": filename,
             },
@@ -373,10 +373,10 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
         active = get_active_template(db, project.id)
         if not active:
             return ActionResult(action=name, ok=False, message="No active bid template. Upload one in the Bid templates tab first.")
-        boq = db.scalar(select(BOQ).where(BOQ.project_id == project.id).order_by(BOQ.version.desc()))
-        if not boq:
+        eoq = db.scalar(select(EOQ).where(EOQ.project_id == project.id).order_by(EOQ.version.desc()))
+        if not eoq:
             return ActionResult(action=name, ok=False, message="No Estimate Of Quantities to map. Generate Estimate Of Quantities first.")
-        result = map_boq_to_template(db, boq_id=boq.id, template_id=active.id)
+        result = map_eoq_to_template(db, eoq_id=eoq.id, template_id=active.id)
         return ActionResult(
             action=name,
             ok=True,
@@ -388,10 +388,10 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
         sor = list_sor(db, project.id)
         if not sor:
             return ActionResult(action=name, ok=False, message="Upload a SOR (Schedule of Rates) in the Cost tab first.")
-        boq = db.scalar(select(BOQ).where(BOQ.project_id == project.id).order_by(BOQ.version.desc()))
-        if not boq:
+        eoq = db.scalar(select(EOQ).where(EOQ.project_id == project.id).order_by(EOQ.version.desc()))
+        if not eoq:
             return ActionResult(action=name, ok=False, message="No Estimate Of Quantities found. Generate Estimate Of Quantities first.")
-        est = generate_cost_estimate(db, project_id=project.id, boq_id=boq.id, user_id=user_id)
+        est = generate_cost_estimate(db, project_id=project.id, eoq_id=eoq.id, user_id=user_id)
         return ActionResult(
             action=name,
             ok=True,

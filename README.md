@@ -1,6 +1,6 @@
 # AutoVAD
 
-AI Copilot for Civil Engineers — upload road/civil documents, extract quantities, generate traceable BOQs, estimate cost, compare revisions, and export Excel/CSV.
+AI Copilot for Civil Engineers — upload road/civil documents, extract quantities, generate traceable EOQs (Estimate Of Quantities), estimate cost, compare revisions, and export Excel/CSV.
 
 ## Stack (as planned)
 
@@ -48,10 +48,10 @@ App: [http://localhost:5173](http://localhost:5173)
 
 - Auth + roles (admin, PM, engineer, QS, reviewer, client)
 - Projects, uploads, document viewer with page jump / Open Source
-- Analyze → BOQ → Excel/CSV export
+- Analyze → EOQ (Estimate Of Quantities) → Excel/CSV export
 - AI chat (heuristic now)
 - Cost estimator (SOR upload + estimate)
-- BOQ compare + drawing revision compare
+- EOQ compare + drawing revision compare
 - Reports, approvals, notifications, global search
 - Analytics charts
 - Admin dashboard (users, jobs, storage, health)
@@ -64,7 +64,7 @@ Project tab **CAD / Civil 3D**:
 1. Upload `.dxf`, `.dwg`, `.xml`/`.landxml`, or Civil JSON  
 2. Click **Process CAD files**  
 3. Review extracted layers / blocks / quantities  
-4. **Generate BOQ** (merges document AI + CAD quantities)
+4. **Generate EOQ** (merges document AI + CAD quantities)
 
 Native DWG later:
 

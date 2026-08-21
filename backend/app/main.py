@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import api_router
 from app.config import get_settings
-from app.database import init_db
+from app.database import SessionLocal, init_db
 
 
 @asynccontextmanager
@@ -13,6 +13,13 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     settings.storage_path.mkdir(parents=True, exist_ok=True)
     init_db()
+    db = SessionLocal()
+    try:
+        from app.services.portal_admin import ensure_portal_admin
+
+        ensure_portal_admin(db)
+    finally:
+        db.close()
     yield
 
 

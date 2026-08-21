@@ -404,7 +404,7 @@ function locationLine(project: Project) {
               {{ project.document_count }} document{{ project.document_count === 1 ? '' : 's' }}
               <span class="mx-1">·</span>
               <v-icon size="14" class="mr-1">mdi-table</v-icon>
-              {{ project.boq_count ?? 0 }} {{ (project.boq_count ?? 0) === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities' }}
+              {{ project.eoq_count ?? 0 }} {{ (project.eoq_count ?? 0) === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities' }}
             </div>
             <div class="text-caption muted mb-4">Updated {{ formatDate(project.updated_at) }}</div>
 
@@ -477,7 +477,7 @@ function locationLine(project: Project) {
               <td class="muted">{{ project.client_name || '—' }}</td>
               <td class="muted">{{ locationLine(project) }}</td>
               <td>{{ project.document_count }}</td>
-              <td>{{ project.boq_count ?? 0 }}</td>
+              <td>{{ project.eoq_count ?? 0 }}</td>
               <td class="muted">{{ formatDate(project.updated_at) }}</td>
               <td class="text-right" @click.stop>
                 <v-btn size="small" variant="text" color="primary" @click="openProject(project)">Open</v-btn>

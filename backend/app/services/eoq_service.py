@@ -1,4 +1,4 @@
-"""Build BOQ records from document analyses and export Excel."""
+"""Build EOQ records from document analyses and export Excel."""
 
 from __future__ import annotations
 
@@ -15,18 +15,18 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.analysis import DocumentAnalysis
-from app.models.boq import BOQ, BOQItem, BOQItemStatus, BOQStatus
+from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
 from app.models.cad import CadModel
 from app.models.project import Project
-from app.services.bid_service import build_boq_items_from_template, get_active_template
-from app.services.boq_groups import assign_group_category, group_items
+from app.services.bid_service import build_eoq_items_from_template, get_active_template
+from app.services.eoq_groups import assign_group_category, group_items
 from app.services.csi_mapper import enrich_quantity_item
 from app.services.processing import load_findings
 
 # AutoVAD standard: confidence below this → Engineer Review
 CONFIDENCE_VERIFIED_THRESHOLD = 97
 
-BOQ_EXPORT_HEADERS = [
+EOQ_EXPORT_HEADERS = [
     "Item Number",
     "Standard Bid Item Number",
     "Item Description",
@@ -51,30 +51,30 @@ def _qty2(value: Decimal | float | None) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
-def standard_bid_item_number(item: BOQItem) -> str:
+def standard_bid_item_number(item: EOQItem) -> str:
     """Agency/state bid code from template; empty when AutoVAD default / unmapped."""
     if item.bid_template_line_id and item.item_code:
         return str(item.item_code)
     return ""
 
 
-def status_label_for_item(item: BOQItem) -> str:
-    """Display status for AutoVAD BOQ standard."""
-    if item.status == BOQItemStatus.VERIFIED:
+def status_label_for_item(item: EOQItem) -> str:
+    """Display status for the AutoVAD EOQ standard."""
+    if item.status == EOQItemStatus.VERIFIED:
         return "Verified"
-    if item.status in {BOQItemStatus.NEEDS_REVIEW, BOQItemStatus.DRAFT}:
+    if item.status in {EOQItemStatus.NEEDS_REVIEW, EOQItemStatus.DRAFT}:
         return "Engineer Review"
-    if item.status == BOQItemStatus.APPROVED:
+    if item.status == EOQItemStatus.APPROVED:
         return "Verified"
     return "Engineer Review"
 
 
-def resolve_item_status(confidence: float | None, *, force_review: bool = False) -> BOQItemStatus:
+def resolve_item_status(confidence: float | None, *, force_review: bool = False) -> EOQItemStatus:
     if force_review:
-        return BOQItemStatus.NEEDS_REVIEW
+        return EOQItemStatus.NEEDS_REVIEW
     if confidence is not None and float(confidence) >= CONFIDENCE_VERIFIED_THRESHOLD:
-        return BOQItemStatus.VERIFIED
-    return BOQItemStatus.NEEDS_REVIEW
+        return EOQItemStatus.VERIFIED
+    return EOQItemStatus.NEEDS_REVIEW
 
 
 def _merge_item(merged: dict[str, dict], item: dict) -> None:
@@ -100,14 +100,14 @@ def _merge_item(merged: dict[str, dict], item: dict) -> None:
         existing["quantity"] = float(new_qty)
 
 
-def generate_boq_for_project(
+def generate_eoq_for_project(
     db: Session,
     project: Project,
     user_id: int,
     *,
     document_ids: list[int] | None = None,
-) -> BOQ:
-    """Build a BOQ from all analyses/CAD, or only the given document_ids (per-file BOQ)."""
+) -> EOQ:
+    """Build an EOQ from all analyses/CAD, or only the given document IDs."""
     analyses = list(
         db.scalars(select(DocumentAnalysis).where(DocumentAnalysis.project_id == project.id)).all()
     )
@@ -129,7 +129,7 @@ def generate_boq_for_project(
         raise ValueError("No analyzed documents or CAD models. Upload design plans and run Analyze first.")
 
     # Prefer CadModel quantities when both CAD analysis mirror and CadModel exist
-    # for the same document (avoids near-duplicate BOQ lines).
+    # for the same document (avoids near-duplicate EOQ lines).
     import json
 
     cad_doc_ids = {
@@ -173,7 +173,7 @@ def generate_boq_for_project(
 
     if has_template:
         # Only bid items evidenced in the plans, aligned to the active agency template.
-        items_list = build_boq_items_from_template(extracted, list(active.lines))
+        items_list = build_eoq_items_from_template(extracted, list(active.lines))
         matched = sum(
             1
             for i in items_list
@@ -191,7 +191,7 @@ def generate_boq_for_project(
                 "Re-analyze plans after uploading the template, or check descriptions/units."
             )
     else:
-        # AutoVAD default: CSI-enriched takeoff BOQ
+        # AutoVAD default: CSI-enriched takeoff EOQ
         items_list = [enrich_quantity_item(dict(item)) for item in extracted]
         notes_extra = (
             " Generated with AutoVAD default CSI schedule (no bid template uploaded)."
@@ -210,12 +210,12 @@ def generate_boq_for_project(
             scope_label = f" · {len(names)} files"
         notes_extra += f" Scope: selected document_id(s) {sorted(scope_ids)}."
 
-    latest_version = db.scalar(select(func.max(BOQ.version)).where(BOQ.project_id == project.id)) or 0
-    boq = BOQ(
+    latest_version = db.scalar(select(func.max(EOQ.version)).where(EOQ.project_id == project.id)) or 0
+    eoq = EOQ(
         project_id=project.id,
         title=f"{project.name} - Estimate Of Quantities v{latest_version + 1}{scope_label}",
         version=latest_version + 1,
-        status=BOQStatus.AI_GENERATED,
+        status=EOQStatus.AI_GENERATED,
         currency="USD",
         notes=(
             "Generated from document AI + CAD with CSI codes, units, and confidence scores."
@@ -223,7 +223,7 @@ def generate_boq_for_project(
         ),
         created_by=user_id,
     )
-    db.add(boq)
+    db.add(eoq)
     db.flush()
 
     # Persist in municipal group order with continuous Item No. 1, 2, 3, …
@@ -266,8 +266,8 @@ def generate_boq_for_project(
         amount = _money2(qty * rate) if rate is not None else None
         unit = str(grouped.get("unit") or "UNIT").strip().upper() or "UNIT"
         db.add(
-            BOQItem(
-                boq_id=boq.id,
+            EOQItem(
+                eoq_id=eoq.id,
                 item_number=str(idx),
                 item_code=grouped.get("item_code"),
                 csi_code=grouped.get("csi_code"),
@@ -290,37 +290,37 @@ def generate_boq_for_project(
 
     db.commit()
     return db.scalar(
-        select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq.id)
+        select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == eoq.id)
     )  # type: ignore[return-value]
 
 
-def list_project_boqs(db: Session, project_id: int) -> list[BOQ]:
+def list_project_eoqs(db: Session, project_id: int) -> list[EOQ]:
     return list(
         db.scalars(
-            select(BOQ)
-            .options(selectinload(BOQ.items))
-            .where(BOQ.project_id == project_id)
-            .order_by(BOQ.version.desc())
+            select(EOQ)
+            .options(selectinload(EOQ.items))
+            .where(EOQ.project_id == project_id)
+            .order_by(EOQ.version.desc())
         ).all()
     )
 
 
-def get_boq_item(db: Session, item_id: int) -> BOQItem | None:
-    return db.scalar(select(BOQItem).where(BOQItem.id == item_id))
+def get_eoq_item(db: Session, item_id: int) -> EOQItem | None:
+    return db.scalar(select(EOQItem).where(EOQItem.id == item_id))
 
 
-def update_boq_item(
+def update_eoq_item(
     db: Session,
-    item: BOQItem,
+    item: EOQItem,
     *,
-    status: BOQItemStatus | None = None,
+    status: EOQItemStatus | None = None,
     quantity: Decimal | None = None,
     description: str | None = None,
     unit: str | None = None,
     item_code: str | None = None,
     review_note: str | None = None,
-) -> BOQItem:
-    """Apply engineer review edits to one BOQ line."""
+) -> EOQItem:
+    """Apply engineer review edits to one EOQ line."""
     if description is not None:
         cleaned = description.strip()
         if cleaned:
@@ -344,20 +344,20 @@ def update_boq_item(
     return item
 
 
-def get_boq(db: Session, boq_id: int) -> BOQ | None:
-    return db.scalar(select(BOQ).options(selectinload(BOQ.items)).where(BOQ.id == boq_id))
+def get_eoq(db: Session, eoq_id: int) -> EOQ | None:
+    return db.scalar(select(EOQ).options(selectinload(EOQ.items)).where(EOQ.id == eoq_id))
 
 
-def _sorted_boq_items(boq: BOQ) -> list[BOQItem]:
+def _sorted_eoq_items(eoq: EOQ) -> list[EOQItem]:
     return sorted(
-        boq.items,
+        eoq.items,
         key=lambda x: int(x.item_number) if str(x.item_number).isdigit() else 0,
     )
 
 
-def _grouped_boq_items(boq: BOQ) -> list[tuple[str, list[BOQItem]]]:
+def _grouped_eoq_items(eoq: EOQ) -> list[tuple[str, list[EOQItem]]]:
     """Return EOQ sections with items (item number order preserved within each group)."""
-    items = _sorted_boq_items(boq)
+    items = _sorted_eoq_items(eoq)
     return group_items(
         items,
         get_description=lambda i: i.description,
@@ -365,8 +365,8 @@ def _grouped_boq_items(boq: BOQ) -> list[tuple[str, list[BOQItem]]]:
     )
 
 
-def export_boq_csv(boq: BOQ) -> bytes:
-    """Full BOQ columns + Group column, section separators, Item No. 1, 2, 3…"""
+def export_eoq_csv(eoq: EOQ) -> bytes:
+    """Full EOQ columns + Group column, section separators, Item No. 1, 2, 3..."""
     buffer = StringIO()
     writer = csv.writer(buffer)
 
@@ -389,7 +389,7 @@ def export_boq_csv(boq: BOQ) -> bytes:
 
     serial = 1
     first_group = True
-    for group_name, items in _grouped_boq_items(boq):
+    for group_name, items in _grouped_eoq_items(eoq):
         if not first_group:
             writer.writerow([])  # blank line between groups
         first_group = False
@@ -438,13 +438,18 @@ def export_boq_csv(boq: BOQ) -> bytes:
     return ("\ufeff" + buffer.getvalue()).encode("utf-8")
 
 
-def export_boq_excel(boq: BOQ) -> bytes:
-    """Full AutoVAD BOQ columns with municipal-style section grouping."""
+def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes:
+    """Full AutoVAD EOQ columns with municipal-style section grouping.
+
+    When utilities_detail is provided (from CAD DWG/DXF takeoff), adds sheets:
+    - Utility Stationing (station-to-station LF by utility)
+    - Utility Connections (bends/fittings with alignment station + side)
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = "Estimate Of Quantities"
 
-    headers = BOQ_EXPORT_HEADERS
+    headers = EOQ_EXPORT_HEADERS
     col_count = len(headers)
 
     title_font = Font(name="Calibri", size=14, bold=True, color="D9FF43")
@@ -473,7 +478,7 @@ def export_boq_excel(boq: BOQ) -> bytes:
     item_rows: list[int] = []
     serial = 1
 
-    for group_name, items in _grouped_boq_items(boq):
+    for group_name, items in _grouped_eoq_items(eoq):
         ws.merge_cells(start_row=row_idx, start_column=1, end_row=row_idx, end_column=col_count)
         sec = ws.cell(row_idx, 1, group_name)
         sec.font = section_font
@@ -564,18 +569,26 @@ def export_boq_excel(boq: BOQ) -> bytes:
         ws.column_dimensions[get_column_letter(i)].width = width
     ws.freeze_panes = "A3"
 
+    _append_utility_stationing_sheets(wb, utilities_detail, header_fill=header_fill, header_font=header_font, border=border)
+
     meta = wb.create_sheet("Meta")
-    meta.append(["Estimate Of Quantities Title", boq.title])
-    meta.append(["Version", boq.version])
-    meta.append(["Status", boq.status.value])
-    meta.append(["Currency", boq.currency])
-    meta.append(["Notes", boq.notes or ""])
+    meta.append(["Estimate Of Quantities Title", eoq.title])
+    meta.append(["Version", eoq.version])
+    meta.append(["Status", eoq.status.value])
+    meta.append(["Currency", eoq.currency])
+    meta.append(["Notes", eoq.notes or ""])
     meta.append(["Generated by", "AutoVAD"])
     meta.append(
         [
             "Layout",
             "Full Estimate Of Quantities columns with municipal section grouping "
             "(Removals, Grading, Watermain, Sanitary Sewer, …)",
+        ]
+    )
+    meta.append(
+        [
+            "Utility sheets",
+            "Utility Stationing + Utility Connections when DWG/DXF CAD takeoff includes underground utilities",
         ]
     )
     meta.append(
@@ -590,8 +603,189 @@ def export_boq_excel(boq: BOQ) -> bytes:
             f"Verified when AI confidence >= {CONFIDENCE_VERIFIED_THRESHOLD}; else Engineer Review",
         ]
     )
-    meta.append(["Columns", ", ".join(BOQ_EXPORT_HEADERS)])
+    meta.append(["Columns", ", ".join(EOQ_EXPORT_HEADERS)])
 
     buffer = BytesIO()
     wb.save(buffer)
     return buffer.getvalue()
+
+
+def load_project_utilities_detail(db: Session, project_id: int) -> dict | None:
+    """Merge utilities_detail_json from all CAD models on a project."""
+    import json
+
+    models = list(db.scalars(select(CadModel).where(CadModel.project_id == project_id)).all())
+    segments: list[dict] = []
+    connections: list[dict] = []
+    alignments: list[dict] = []
+    for cad in models:
+        raw = cad.utilities_detail_json
+        if not raw:
+            # Rebuild from stored entities when older CAD runs lack the column payload
+            try:
+                entities = json.loads(cad.entities_json or "{}")
+                texts = json.loads(cad.texts_json or "[]")
+                blocks = json.loads(cad.blocks_json or "[]")
+                extraction = {
+                    **(entities if isinstance(entities, dict) else {}),
+                    "texts": texts if isinstance(texts, list) else [],
+                    "blocks": blocks if isinstance(blocks, list) else [],
+                }
+                from app.services.cad.utility_stationing import build_utilities_detail
+
+                detail = build_utilities_detail(extraction)
+            except Exception:
+                continue
+        else:
+            try:
+                detail = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(detail, dict):
+            continue
+        for s in detail.get("segments") or []:
+            row = dict(s)
+            row.setdefault("cad_document_id", cad.document_id)
+            segments.append(row)
+        for c in detail.get("connections") or []:
+            row = dict(c)
+            row.setdefault("cad_document_id", cad.document_id)
+            connections.append(row)
+        if detail.get("alignment"):
+            alignments.append(dict(detail["alignment"]))
+
+    if not segments and not connections:
+        return None
+    return {
+        "segments": segments,
+        "connections": connections,
+        "alignments": alignments,
+        "summary": {
+            "segment_count": len(segments),
+            "connection_count": len(connections),
+            "total_lf": round(sum(float(s.get("quantity_lf") or 0) for s in segments), 2),
+        },
+    }
+
+
+def _append_utility_stationing_sheets(
+    wb: Workbook,
+    utilities_detail: dict | None,
+    *,
+    header_fill: PatternFill,
+    header_font: Font,
+    border: Border,
+) -> None:
+    detail = utilities_detail or {}
+    segments = list(detail.get("segments") or [])
+    connections = list(detail.get("connections") or [])
+
+    # Always create the sheets so users know the feature exists for DWG takeoffs
+    seg_ws = wb.create_sheet("Utility Stationing")
+    seg_headers = [
+        "Utility",
+        "Size",
+        "Description",
+        "From Station",
+        "To Station",
+        "Direction (vs alignment)",
+        "Side of Alignment",
+        "Quantity (LF)",
+        "Layer",
+        "Alignment",
+        "Source",
+        "Calculation Method",
+    ]
+    for col, h in enumerate(seg_headers, start=1):
+        cell = seg_ws.cell(1, col, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    if not segments:
+        seg_ws.cell(
+            2,
+            1,
+            "No underground utility station runs found yet. Process a DWG/DXF (CAD) with "
+            "water/sanitary/storm pipes or station callouts, then re-export Excel.",
+        )
+    else:
+        for r_i, row in enumerate(segments, start=2):
+            values = [
+                row.get("utility") or "",
+                row.get("size") or "",
+                row.get("description") or "",
+                row.get("from_station") or row.get("from_station_raw") or "",
+                row.get("to_station") or row.get("to_station_raw") or "",
+                row.get("direction") or "",
+                row.get("side_of_alignment") or "",
+                float(row.get("quantity_lf") or 0),
+                row.get("layer") or "",
+                row.get("alignment") or "",
+                row.get("source") or "",
+                row.get("method") or "",
+            ]
+            for c_i, val in enumerate(values, start=1):
+                cell = seg_ws.cell(r_i, c_i, val)
+                cell.border = border
+                if c_i == 8:
+                    cell.number_format = "0.00"
+                    cell.alignment = Alignment(horizontal="right")
+
+    for i, w in enumerate([16, 10, 28, 14, 14, 22, 16, 14, 18, 22, 18, 40], start=1):
+        seg_ws.column_dimensions[get_column_letter(i)].width = w
+    seg_ws.freeze_panes = "A2"
+
+    conn_ws = wb.create_sheet("Utility Connections")
+    conn_headers = [
+        "Utility",
+        "Connection / Bend",
+        "Size",
+        "Station",
+        "Direction from Alignment",
+        "Offset (ft)",
+        "Qty",
+        "Unit",
+        "Layer",
+        "Alignment",
+        "Source",
+        "Calculation Method",
+    ]
+    for col, h in enumerate(conn_headers, start=1):
+        cell = conn_ws.cell(1, col, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+
+    if not connections:
+        conn_ws.cell(
+            2,
+            1,
+            "No bends/fittings/connections located yet. Process CAD with fitting blocks "
+            "or pipe polylines that deflect, then re-export Excel.",
+        )
+    else:
+        for r_i, row in enumerate(connections, start=2):
+            values = [
+                row.get("utility") or "",
+                row.get("connection_type") or "",
+                row.get("size") or "",
+                row.get("station") or "",
+                row.get("direction_from_alignment") or "",
+                row.get("offset_ft") or "",
+                float(row.get("quantity") or 1),
+                row.get("unit") or "EA",
+                row.get("layer") or "",
+                row.get("alignment") or "",
+                row.get("source") or "",
+                row.get("method") or "",
+            ]
+            for c_i, val in enumerate(values, start=1):
+                cell = conn_ws.cell(r_i, c_i, val)
+                cell.border = border
+
+    for i, w in enumerate([16, 22, 10, 14, 22, 12, 8, 8, 18, 22, 18, 40], start=1):
+        conn_ws.column_dimensions[get_column_letter(i)].width = w
+    conn_ws.freeze_panes = "A2"

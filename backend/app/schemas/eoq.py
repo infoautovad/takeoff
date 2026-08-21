@@ -3,13 +3,13 @@ from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.models.boq import BOQItemStatus, BOQStatus
+from app.models.eoq import EOQItemStatus, EOQStatus
 
 
-class BOQItemUpdate(BaseModel):
-    """Engineer review edits for a single BOQ line."""
+class EOQItemUpdate(BaseModel):
+    """Engineer review edits for a single EOQ line."""
 
-    status: BOQItemStatus | None = None
+    status: EOQItemStatus | None = None
     quantity: Decimal | None = Field(default=None, ge=0)
     description: str | None = Field(default=None, min_length=1, max_length=2000)
     unit: str | None = Field(default=None, min_length=1, max_length=50)
@@ -17,11 +17,11 @@ class BOQItemUpdate(BaseModel):
     notes: str | None = None
 
 
-class BOQItemOut(BaseModel):
+class EOQItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    boq_id: int
+    eoq_id: int
     item_number: str
     item_code: str | None
     csi_code: str | None = None
@@ -38,22 +38,22 @@ class BOQItemOut(BaseModel):
     confidence: Decimal | None
     bid_template_line_id: int | None = None
     bid_match_confidence: float | None = None
-    status: BOQItemStatus
+    status: EOQItemStatus
     created_at: datetime
     updated_at: datetime
 
 
-class BOQOut(BaseModel):
+class EOQOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     project_id: int
     title: str
     version: int
-    status: BOQStatus
+    status: EOQStatus
     currency: str
     notes: str | None
     created_by: int
     created_at: datetime
     updated_at: datetime
-    items: list[BOQItemOut] = []
+    items: list[EOQItemOut] = []

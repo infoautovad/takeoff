@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import get_current_user
 from app.database import get_db
 from app.models.activity import ActivityLog
-from app.models.boq import BOQ, BOQStatus
+from app.models.eoq import EOQ, EOQStatus
 from app.models.cost import CostEstimate
 from app.models.document import Document, ProcessingStatus
 from app.models.project import Project, ProjectMember, ProjectStatus
@@ -47,7 +47,7 @@ def get_dashboard_stats(
     documents_uploaded = (
         db.scalar(select(func.count()).select_from(Document).where(Document.project_id.in_(project_ids))) or 0
     )
-    boqs_generated = db.scalar(select(func.count()).select_from(BOQ).where(BOQ.project_id.in_(project_ids))) or 0
+    eoqs_generated = db.scalar(select(func.count()).select_from(EOQ).where(EOQ.project_id.in_(project_ids))) or 0
     pending_reviews = (
         db.scalar(
             select(func.count())
@@ -56,11 +56,11 @@ def get_dashboard_stats(
         )
         or 0
     )
-    pending_boq_reviews = (
+    pending_eoq_reviews = (
         db.scalar(
             select(func.count())
-            .select_from(BOQ)
-            .where(BOQ.project_id.in_(project_ids), BOQ.status == BOQStatus.IN_REVIEW)
+            .select_from(EOQ)
+            .where(EOQ.project_id.in_(project_ids), EOQ.status == EOQStatus.IN_REVIEW)
         )
         or 0
     )
@@ -91,11 +91,11 @@ def get_dashboard_stats(
         )
         or 0
     )
-    week_boqs = (
+    week_eoqs = (
         db.scalar(
             select(func.count())
-            .select_from(BOQ)
-            .where(BOQ.project_id.in_(project_ids), BOQ.created_at >= week_ago)
+            .select_from(EOQ)
+            .where(EOQ.project_id.in_(project_ids), EOQ.created_at >= week_ago)
         )
         or 0
     )
@@ -154,13 +154,13 @@ def get_dashboard_stats(
             )
         )
 
-    # Projects with documents but no BOQ yet
+    # Projects with documents but no EOQ yet
     projects_with_docs = db.scalars(
         select(Project.id)
         .where(
             Project.id.in_(project_ids),
             Project.id.in_(select(Document.project_id).where(Document.project_id.in_(project_ids))),
-            ~Project.id.in_(select(BOQ.project_id).where(BOQ.project_id.in_(project_ids))),
+            ~Project.id.in_(select(EOQ.project_id).where(EOQ.project_id.in_(project_ids))),
             Project.status != ProjectStatus.ARCHIVED,
         )
         .limit(8)
@@ -168,7 +168,7 @@ def get_dashboard_stats(
     for pid in projects_with_docs:
         attention.append(
             AttentionItem(
-                kind="missing_boq",
+                kind="missing_eoq",
                 severity="warning",
                 title="Estimate Of Quantities not generated yet",
                 detail="This project has uploads but no Estimate Of Quantities. Run Analyze / Process CAD, then Generate Estimate Of Quantities.",
@@ -178,27 +178,27 @@ def get_dashboard_stats(
             )
         )
 
-    # Empty BOQs (zero items)
-    empty_boqs = db.scalars(
-        select(BOQ)
-        .options(selectinload(BOQ.items))
-        .where(BOQ.project_id.in_(project_ids))
-        .order_by(BOQ.updated_at.desc())
+    # Empty EOQs (zero items)
+    empty_eoqs = db.scalars(
+        select(EOQ)
+        .options(selectinload(EOQ.items))
+        .where(EOQ.project_id.in_(project_ids))
+        .order_by(EOQ.updated_at.desc())
         .limit(20)
     ).all()
     empty_added = 0
-    for boq in empty_boqs:
-        if boq.items:
+    for eoq in empty_eoqs:
+        if eoq.items:
             continue
         attention.append(
             AttentionItem(
-                kind="empty_boq",
+                kind="empty_eoq",
                 severity="warning",
-                title=f"Empty Estimate Of Quantities: {boq.title}",
+                title=f"Empty Estimate Of Quantities: {eoq.title}",
                 detail="Estimate Of Quantities exists but has 0 line items. Re-run CAD/document analysis, then regenerate.",
-                project_id=boq.project_id,
-                project_name=project_name(boq.project_id),
-                entity_id=boq.id,
+                project_id=eoq.project_id,
+                project_name=project_name(eoq.project_id),
+                entity_id=eoq.id,
                 action_label="Open Estimate Of Quantities",
             )
         )
@@ -206,7 +206,7 @@ def get_dashboard_stats(
         if empty_added >= 5:
             break
 
-    # Pending review projects / BOQs
+    # Pending review projects / EOQs
     review_projects = db.scalars(
         select(Project)
         .where(Project.id.in_(project_ids), Project.status == ProjectStatus.IN_REVIEW)
@@ -225,22 +225,22 @@ def get_dashboard_stats(
             )
         )
 
-    review_boqs = db.scalars(
-        select(BOQ)
-        .where(BOQ.project_id.in_(project_ids), BOQ.status == BOQStatus.IN_REVIEW)
-        .order_by(BOQ.updated_at.desc())
+    review_eoqs = db.scalars(
+        select(EOQ)
+        .where(EOQ.project_id.in_(project_ids), EOQ.status == EOQStatus.IN_REVIEW)
+        .order_by(EOQ.updated_at.desc())
         .limit(5)
     ).all()
-    for boq in review_boqs:
+    for eoq in review_eoqs:
         attention.append(
             AttentionItem(
                 kind="pending_review",
                 severity="info",
-                title=f"Estimate Of Quantities awaiting review: {boq.title}",
+                title=f"Estimate Of Quantities awaiting review: {eoq.title}",
                 detail="Submit or approve this Estimate Of Quantities from the project workspace.",
-                project_id=boq.project_id,
-                project_name=project_name(boq.project_id),
-                entity_id=boq.id,
+                project_id=eoq.project_id,
+                project_name=project_name(eoq.project_id),
+                entity_id=eoq.id,
                 action_label="Review Estimate Of Quantities",
             )
         )
@@ -261,13 +261,13 @@ def get_dashboard_stats(
         total_projects=total_projects,
         active_projects=active_projects,
         documents_uploaded=documents_uploaded,
-        boqs_generated=boqs_generated,
-        pending_reviews=pending_reviews + pending_boq_reviews,
+        eoqs_generated=eoqs_generated,
+        pending_reviews=pending_reviews + pending_eoq_reviews,
         recent_activity=recent_activity,
         needs_attention=unique_attention,
         week=WeekSnapshot(
             documents_uploaded=week_docs,
-            boqs_generated=week_boqs,
+            eoqs_generated=week_eoqs,
             projects_touched=week_projects,
             failed_uploads=week_failed,
         ),
@@ -292,25 +292,25 @@ def _build_analytics_snapshot(db: Session, project_ids: list[int], since: dateti
             "costs": {"total_estimated": 0.0, "by_project": []},
             "pavement": {"GSB": 0.0, "WMM": 0.0, "DBM": 0.0, "Bituminous Concrete": 0.0, "Asphalt": 0.0},
             "meta": {
-                "boq_count": 0,
+                "eoq_count": 0,
                 "estimate_count": 0,
                 "project_count": 0,
                 "item_count": 0,
                 "last_updated": None,
-                "has_boqs": False,
+                "has_eoqs": False,
                 "has_estimates": False,
             },
         }
 
-    boq_stmt = (
-        select(BOQ)
-        .options(selectinload(BOQ.items))
-        .where(BOQ.project_id.in_(project_ids))
-        .order_by(BOQ.updated_at.desc())
+    eoq_stmt = (
+        select(EOQ)
+        .options(selectinload(EOQ.items))
+        .where(EOQ.project_id.in_(project_ids))
+        .order_by(EOQ.updated_at.desc())
     )
     if since is not None:
-        boq_stmt = boq_stmt.where(BOQ.created_at >= since)
-    boqs = db.scalars(boq_stmt).all()
+        eoq_stmt = eoq_stmt.where(EOQ.created_at >= since)
+    eoqs = db.scalars(eoq_stmt).all()
 
     material_totals: dict[str, float] = {}
     material_units: dict[str, str] = {}
@@ -318,10 +318,10 @@ def _build_analytics_snapshot(db: Session, project_ids: list[int], since: dateti
     item_count = 0
     last_updated: datetime | None = None
 
-    for boq in boqs:
-        if last_updated is None or (boq.updated_at and boq.updated_at > last_updated):
-            last_updated = boq.updated_at
-        for item in boq.items:
+    for eoq in eoqs:
+        if last_updated is None or (eoq.updated_at and eoq.updated_at > last_updated):
+            last_updated = eoq.updated_at
+        for item in eoq.items:
             item_count += 1
             key = item.description
             qty = float(item.quantity)
@@ -411,12 +411,12 @@ def _build_analytics_snapshot(db: Session, project_ids: list[int], since: dateti
             "Asphalt": round(float(material_totals.get("Asphalt", 0)), 2),
         },
         "meta": {
-            "boq_count": len(boqs),
+            "eoq_count": len(eoqs),
             "estimate_count": len(estimates),
             "project_count": len(project_ids),
             "item_count": item_count,
             "last_updated": last_updated.isoformat() if last_updated else None,
-            "has_boqs": len(boqs) > 0,
+            "has_eoqs": len(eoqs) > 0,
             "has_estimates": len(estimates) > 0,
         },
     }

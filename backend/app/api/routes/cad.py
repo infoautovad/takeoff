@@ -193,7 +193,7 @@ def process_cad(
         raise HTTPException(status_code=400, detail="File is not a CAD/Civil format (DXF/DWG/LandXML/Civil3D)")
 
     try:
-        # Mirrors CAD quantities into DocumentAnalysis for BOQ / chat.
+        # Mirrors CAD quantities into DocumentAnalysis for EOQ / chat.
         process_document(db, document)
         model = db.scalar(
             select(CadModel)

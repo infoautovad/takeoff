@@ -50,6 +50,7 @@ class CadModel(Base):
     texts_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     tables_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     quantities_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    utilities_detail_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_stats_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(

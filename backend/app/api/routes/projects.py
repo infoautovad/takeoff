@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.database import get_db
-from app.models.boq import BOQ
+from app.models.eoq import EOQ
 from app.models.document import Document
 from app.models.project import Project, ProjectMember, ProjectMemberRole, ProjectStatus
 from app.models.user import User
@@ -30,10 +30,10 @@ def _project_access_filter(user: User):
 
 def _to_project_out(db: Session, project: Project) -> ProjectOut:
     doc_count = db.scalar(select(func.count()).select_from(Document).where(Document.project_id == project.id)) or 0
-    boq_count = db.scalar(select(func.count()).select_from(BOQ).where(BOQ.project_id == project.id)) or 0
+    eoq_count = db.scalar(select(func.count()).select_from(EOQ).where(EOQ.project_id == project.id)) or 0
     data = ProjectOut.model_validate(project)
     data.document_count = doc_count
-    data.boq_count = boq_count
+    data.eoq_count = eoq_count
     return data
 
 

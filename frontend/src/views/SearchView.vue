@@ -76,9 +76,9 @@ async function runSearch() {
         </v-col>
         <v-col cols="12" md="4">
           <div class="surface-panel pa-4">
-            <h2 class="brand-font text-subtitle-1 mb-3">Estimate Of Quantities items ({{ result.boq_items.length }})</h2>
-            <div v-if="!result.boq_items.length" class="muted">No matches</div>
-            <div v-for="i in result.boq_items" :key="i.id" class="result-row static">
+            <h2 class="brand-font text-subtitle-1 mb-3">Estimate Of Quantities items ({{ result.eoq_items.length }})</h2>
+            <div v-if="!result.eoq_items.length" class="muted">No matches</div>
+            <div v-for="i in result.eoq_items" :key="i.id" class="result-row static">
               <div class="font-weight-medium">{{ i.description }}</div>
               <div class="text-caption muted">{{ i.quantity }} {{ i.unit }} · {{ i.category || 'General' }}</div>
             </div>

@@ -32,7 +32,7 @@ const hoveredKpi = ref<string | null>(null)
 const displayCost = ref(0)
 const displayCut = ref(0)
 const displayFill = ref(0)
-const displayBoqs = ref(0)
+const displayEoqs = ref(0)
 
 const rangeOptions = [
   { title: 'Last 7 days', value: '7d' as const },
@@ -101,11 +101,11 @@ const balanceSide = computed(() => {
   return 'even'
 })
 
-const hasData = computed(() => Boolean(meta.value?.has_boqs || meta.value?.has_estimates))
+const hasData = computed(() => Boolean(meta.value?.has_eoqs || meta.value?.has_estimates))
 const freshnessLabel = computed(() => {
   if (!meta.value) return ''
   const parts = [
-    `Based on ${meta.value.boq_count} ${meta.value.boq_count === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities'}`,
+    `Based on ${meta.value.eoq_count} ${meta.value.eoq_count === 1 ? 'Estimate Of Quantities' : 'Estimates Of Quantities'}`,
     `${meta.value.item_count} line item${meta.value.item_count === 1 ? '' : 's'}`,
     `${meta.value.estimate_count} estimate${meta.value.estimate_count === 1 ? '' : 's'}`,
   ]
@@ -153,13 +153,13 @@ function animateNumbers(snapshot: AnalyticsSnapshot) {
     cost: displayCost.value,
     cut: displayCut.value,
     fill: displayFill.value,
-    boqs: displayBoqs.value,
+    eoqs: displayEoqs.value,
   }
   const to = {
     cost: snapshot.costs.total_estimated,
     cut: snapshot.earthwork.cut,
     fill: snapshot.earthwork.fill,
-    boqs: snapshot.meta.boq_count,
+    eoqs: snapshot.meta.eoq_count,
   }
 
   function frame(now: number) {
@@ -168,7 +168,7 @@ function animateNumbers(snapshot: AnalyticsSnapshot) {
     displayCost.value = from.cost + (to.cost - from.cost) * eased
     displayCut.value = from.cut + (to.cut - from.cut) * eased
     displayFill.value = from.fill + (to.fill - from.fill) * eased
-    displayBoqs.value = Math.round(from.boqs + (to.boqs - from.boqs) * eased)
+    displayEoqs.value = Math.round(from.eoqs + (to.eoqs - from.eoqs) * eased)
     if (t < 1) requestAnimationFrame(frame)
   }
   requestAnimationFrame(frame)
@@ -245,7 +245,7 @@ function exportCsv() {
   lines.push(`Generated,${new Date().toISOString()}`)
   lines.push(`Range,${rangeFilter.value}`)
   lines.push(`Projects in scope,${meta.value?.project_count ?? 0}`)
-  lines.push(`Estimates Of Quantities,${meta.value?.boq_count ?? 0}`)
+  lines.push(`Estimates Of Quantities,${meta.value?.eoq_count ?? 0}`)
   lines.push(`Estimates,${meta.value?.estimate_count ?? 0}`)
   lines.push(`Last updated,${meta.value?.last_updated || ''}`)
   lines.push('')
@@ -326,7 +326,7 @@ function exportPdf() {
       <div class="kpi"><span>Total cost</span><b>${money(d.costs.total_estimated)}</b></div>
       <div class="kpi"><span>Cut</span><b>${formatQty(d.earthwork.cut)} m³</b></div>
       <div class="kpi"><span>Fill</span><b>${formatQty(d.earthwork.fill)} m³</b></div>
-      <div class="kpi"><span>Estimates Of Quantities</span><b>${d.meta.boq_count}</b></div>
+      <div class="kpi"><span>Estimates Of Quantities</span><b>${d.meta.eoq_count}</b></div>
     </div>
     <h2>Materials</h2>
     <table><thead><tr><th>Material</th><th>Qty</th><th>Unit</th><th>Share</th></tr></thead><tbody>${materialsRows || '<tr><td colspan="4">No materials</td></tr>'}</tbody></table>
@@ -520,8 +520,8 @@ onMounted(async () => {
         <button
           type="button"
           class="kpi-card warn"
-          :class="{ hot: hoveredKpi === 'boqs' }"
-          @mouseenter="hoveredKpi = 'boqs'"
+          :class="{ hot: hoveredKpi === 'eoqs' }"
+          @mouseenter="hoveredKpi = 'eoqs'"
           @mouseleave="hoveredKpi = null"
           @click="openProjects"
         >
@@ -529,7 +529,7 @@ onMounted(async () => {
             <span>Estimates Of Quantities in scope</span>
             <v-icon size="18">mdi-table-large</v-icon>
           </div>
-          <div class="stat-value">{{ displayBoqs }}</div>
+          <div class="stat-value">{{ displayEoqs }}</div>
           <div class="kpi-hint">{{ meta?.item_count || 0 }} line items →</div>
         </button>
       </section>

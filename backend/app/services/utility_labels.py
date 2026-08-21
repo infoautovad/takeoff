@@ -144,8 +144,18 @@ def _kind_description(kind: str, network: str, size: str | None) -> tuple[str, s
     return f"{size_bit}Utility Pipe".strip(), "Utilities", "LF"
 
 
-def extract_utility_label_items(text: str, *, filename: str = "", document_id: int | None = None) -> list[dict[str, Any]]:
-    """Parse plan text for utility label/callout quantities."""
+def extract_utility_label_items(
+    text: str,
+    *,
+    filename: str = "",
+    document_id: int | None = None,
+    mains_only: bool = False,
+) -> list[dict[str, Any]]:
+    """Parse plan text for utility label/callout quantities.
+
+    When mains_only=True (EOQ/schedule documents), skip fitting/valve/hydrant invents
+    that inflate false extras vs bid schedules.
+    """
     if not text or len(text.strip()) < 8:
         return []
 
@@ -159,6 +169,8 @@ def extract_utility_label_items(text: str, *, filename: str = "", document_id: i
     found: dict[str, dict[str, Any]] = {}
 
     for pattern, network in _LABEL_PATTERNS:
+        if mains_only and network == "water_fitting":
+            continue
         for match in pattern.finditer(cleaned):
             gd = match.groupdict()
             size = _size_label(gd.get("size"))

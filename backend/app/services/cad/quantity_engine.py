@@ -249,6 +249,31 @@ def classify_fitting(name: str, layer: str = "") -> tuple[str, str, str] | None:
     for keys, desc, cat in structure_map:
         if any(k in text for k in keys):
             return desc, cat, "EA"
+
+    # Traffic signs / MUTCD inserts → counted, later rolled into Traffic Control SqFt
+    sign_keys = (
+        "sign",
+        "mutcd",
+        "stop",
+        "yield",
+        "speedlimit",
+        "speed_limit",
+        "w1-",
+        "w2-",
+        "w3-",
+        "w4-",
+        "w5-",
+        "w20-",
+        "r1-",
+        "r2-",
+        "r5-",
+        "r6-",
+        "r11-",
+        "s1-",
+        "g20-",
+    )
+    if any(k in text for k in sign_keys) and "signal" not in text and "marking" not in text:
+        return "Traffic Sign", "General / Traffic Control", "EA"
     return None
 
 
@@ -380,7 +405,7 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
             desc = f"Area - {name}"
             cat = "Pavement" if any(k in low for k in ("pave", "asphalt", "gsb", "wmm")) else "Geometry"
         else:
-            return  # skip random closed polys as BOQ area noise
+            return  # skip random closed polys as EOQ area noise
         key = f"{desc}|SF|{name}"
         row = area_by_key.setdefault(
             key,
@@ -643,6 +668,10 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
 
     items = _dedupe_prefer_sized(items)
     items = _collapse_count_duplicates(items)
+
+    from app.services.traffic_control import consolidate_traffic_control_signs
+
+    items, _tc_meta = consolidate_traffic_control_signs(items, allow_online_refresh=False)
     return items[:300]
 
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from app.services.boq_eval import ExpectedItem, compare_boq, parse_expected_items, summarize_report
+from app.services.eoq_eval import ExpectedItem, compare_eoq, parse_expected_items, summarize_report
 from app.services.cad.quantity_engine import build_quantities, extract_size_label, detect_network
 from app.services.bid_service import _match_line
 from app.services.csi_mapper import normalize_unit
@@ -17,7 +17,7 @@ GOLD_ROOT = Path(__file__).parent / "gold_set" / "cases"
 
 def _load_case(case_id: str) -> tuple[dict, dict]:
     case_dir = GOLD_ROOT / case_id
-    expected = json.loads((case_dir / "expected_boq.json").read_text(encoding="utf-8"))
+    expected = json.loads((case_dir / "expected_eoq.json").read_text(encoding="utf-8"))
     extraction = json.loads((case_dir / "extraction.json").read_text(encoding="utf-8"))
     return expected, extraction
 
@@ -32,20 +32,20 @@ def test_extract_size_and_network_helpers():
 def test_gold_sample_utility_quantity_engine():
     expected_raw, extraction = _load_case("sample_utility")
     items = build_quantities(extraction, source_label="sample_utility.dwg")
-    report = compare_boq(expected_raw, items)
+    report = compare_eoq(expected_raw, items)
 
     assert report.recall >= 0.85, summarize_report(report)
     assert not report.misses, summarize_report(report)
     assert len(report.qty_errors) == 0, summarize_report(report)
 
 
-def test_compare_boq_miss_by_category():
+def test_compare_eoq_miss_by_category():
     expected = [
         ExpectedItem(description="8-Inch Water Main", unit="LF", category="Utilities", quantity=100),
         ExpectedItem(description="Earthwork Cut", unit="CY", category="Earthwork", quantity=50),
     ]
     actual = [{"description": "8-Inch Water Main", "unit": "LF", "quantity": 100, "category": "Utilities"}]
-    report = compare_boq(expected, actual)
+    report = compare_eoq(expected, actual)
     assert report.misses_by_category.get("Earthwork") == 1
     assert report.recall == 0.5
 
@@ -85,16 +85,16 @@ def test_bid_match_requires_compatible_unit():
     assert score2 >= 78
 
 
-def test_boq_group_sections():
-    from app.services.boq_groups import group_items, resolve_boq_group
+def test_eoq_group_sections():
+    from app.services.eoq_groups import group_items, resolve_eoq_group
 
-    assert resolve_boq_group(description='8" PVC Watermain') == "Watermain"
-    assert resolve_boq_group(description="Remove Concrete Curb and Gutter") == "Removals"
-    assert resolve_boq_group(description="Unclassified Excavation") == "Grading"
-    assert resolve_boq_group(description="Sanitary Sewer Pipe 8 Inch") == "Sanitary Sewer"
-    assert resolve_boq_group(description="Aggregate Base Course") == "Surfacing"
-    assert resolve_boq_group(description="Silt Fence") == "Erosion Control / Restoration"
-    assert resolve_boq_group(description="Mobilization") == "General / Traffic Control"
+    assert resolve_eoq_group(description='8" PVC Watermain') == "Watermain"
+    assert resolve_eoq_group(description="Remove Concrete Curb and Gutter") == "Removals"
+    assert resolve_eoq_group(description="Unclassified Excavation") == "Grading"
+    assert resolve_eoq_group(description="Sanitary Sewer Pipe 8 Inch") == "Sanitary Sewer"
+    assert resolve_eoq_group(description="Aggregate Base Course") == "Surfacing"
+    assert resolve_eoq_group(description="Silt Fence") == "Erosion Control / Restoration"
+    assert resolve_eoq_group(description="Mobilization") == "General / Traffic Control"
 
     rows = [
         {"description": "Mobilization", "category": None},

@@ -54,7 +54,7 @@ class Project(Base):
     owner = relationship("User", back_populates="owned_projects", foreign_keys=[owner_id])
     members = relationship("ProjectMember", back_populates="project", cascade="all, delete-orphan")
     documents = relationship("Document", back_populates="project", cascade="all, delete-orphan")
-    boqs = relationship("BOQ", back_populates="project", cascade="all, delete-orphan")
+    eoqs = relationship("EOQ", back_populates="project", cascade="all, delete-orphan")
     activities = relationship("ActivityLog", back_populates="project", cascade="all, delete-orphan")
 
 

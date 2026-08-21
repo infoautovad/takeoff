@@ -90,7 +90,7 @@ def process_document(db: Session, document: Document) -> DocumentAnalysis:
 
 
 def _process_cad_as_analysis(db: Session, document: Document) -> DocumentAnalysis:
-    """Run CAD Intelligence Engine and mirror quantities into DocumentAnalysis for BOQ/chat."""
+    """Run CAD Intelligence Engine and mirror quantities into DocumentAnalysis for EOQ/chat."""
     model = process_cad_document(db, document)
     db.refresh(model)
 

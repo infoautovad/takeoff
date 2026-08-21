@@ -5,9 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { useProjectsStore } from '@/stores/projects'
 import { downloadDocument } from '@/api/documents'
 import { analyzeDocument, analyzeProject, askChat, intelligenceStatus, listAnalyses, listChat, type IntelligenceStatus } from '@/api/ai'
-import { downloadBoqCsv, downloadBoqExcel, generateBoq, listBoqs, updateBoqApproval, updateBoqItem } from '@/api/boq'
+import { downloadEoqCsv, downloadEoqExcel, generateEoq, listEoqs, updateEoqApproval, updateEoqItem } from '@/api/eoq'
 import { createEstimate, listEstimates, listSor, uploadSor } from '@/api/cost'
-import { compareBoqs, compareDrawings, listComparisons } from '@/api/compare'
+import { compareEoqs, compareDrawings, listComparisons } from '@/api/compare'
 import { generateReports, listReports } from '@/api/reports'
 import { listMembers, shareProject } from '@/api/projects'
 import {
@@ -23,23 +23,23 @@ import {
   activateBidTemplate,
   deleteBidTemplate,
   listBidTemplates,
-  mapBoqToBid,
+  mapEoqToBid,
   uploadBidTemplate,
   type BidMapResult,
   type BidTemplate,
 } from '@/api/bid'
-import type { AnalysisResult, BOQ, BOQItem, ChatMessage } from '@/types'
+import type { AnalysisResult, EOQ, EOQItem, ChatMessage } from '@/types'
 import {
-  boqItemStatusColor,
-  boqItemStatusLabel,
+  eoqItemStatusColor,
+  eoqItemStatusLabel,
   formatBytes,
   formatDate,
   formatQty,
-  isUnmappedBoqItem,
+  isUnmappedEoqItem,
   standardBidItemNumber,
   statusColor,
 } from '@/utils/format'
-import { groupBoqItems } from '@/utils/boqGroups'
+import { groupEoqItems } from '@/utils/eoqGroups'
 
 const route = useRoute()
 const router = useRouter()
@@ -49,6 +49,8 @@ const tab = ref((route.query.tab as string) || 'documents')
 
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
+const uploadProgress = ref(0)
+const uploadProgressLabel = ref('')
 const revisionLabel = ref('')
 const notes = ref('')
 const selectedFiles = ref<File[]>([])
@@ -89,32 +91,32 @@ const cadAnalyzeStages = [
 ]
 const analyzeStages = ref(pdfAnalyzeStages)
 const analyses = ref<AnalysisResult[]>([])
-const boqs = ref<BOQ[]>([])
-const activeBoq = ref<BOQ | null>(null)
-const boqLoading = ref(false)
-const boqSourceDocId = ref<number | null>(null)
-const boqError = ref<string | null>(null)
-const boqScopeDocIds = ref<number[]>([])
-const boqFilter = ref<'all' | 'review' | 'verified' | 'unmapped'>('all')
-const boqItemSaving = ref<number | null>(null)
+const eoqs = ref<EOQ[]>([])
+const activeEoq = ref<EOQ | null>(null)
+const eoqLoading = ref(false)
+const eoqSourceDocId = ref<number | null>(null)
+const eoqError = ref<string | null>(null)
+const eoqScopeDocIds = ref<number[]>([])
+const eoqFilter = ref<'all' | 'review' | 'verified' | 'unmapped'>('all')
+const eoqItemSaving = ref<number | null>(null)
 
-const filteredBoqItems = computed(() => {
-  const items = activeBoq.value?.items || []
-  if (boqFilter.value === 'all') return items
-  if (boqFilter.value === 'unmapped') return items.filter((i) => isUnmappedBoqItem(i))
-  if (boqFilter.value === 'verified') {
-    return items.filter((i) => boqItemStatusLabel(i) === 'Verified')
+const filteredEoqItems = computed(() => {
+  const items = activeEoq.value?.items || []
+  if (eoqFilter.value === 'all') return items
+  if (eoqFilter.value === 'unmapped') return items.filter((i) => isUnmappedEoqItem(i))
+  if (eoqFilter.value === 'verified') {
+    return items.filter((i) => eoqItemStatusLabel(i) === 'Verified')
   }
-  return items.filter((i) => boqItemStatusLabel(i) === 'Engineer Review')
+  return items.filter((i) => eoqItemStatusLabel(i) === 'Engineer Review')
 })
 
-const groupedBoqSections = computed(() => groupBoqItems(filteredBoqItems.value))
+const groupedEoqSections = computed(() => groupEoqItems(filteredEoqItems.value))
 
-const boqReviewCount = computed(
-  () => (activeBoq.value?.items || []).filter((i) => boqItemStatusLabel(i) === 'Engineer Review').length,
+const eoqReviewCount = computed(
+  () => (activeEoq.value?.items || []).filter((i) => eoqItemStatusLabel(i) === 'Engineer Review').length,
 )
-const boqUnmappedCount = computed(
-  () => (activeBoq.value?.items || []).filter((i) => isUnmappedBoqItem(i)).length,
+const eoqUnmappedCount = computed(
+  () => (activeEoq.value?.items || []).filter((i) => isUnmappedEoqItem(i)).length,
 )
 const chatMessages = ref<ChatMessage[]>([])
 const chatInput = ref('')
@@ -128,8 +130,8 @@ const costLoading = ref(false)
 const costError = ref<string | null>(null)
 const sorFile = ref<File[] | File | null>(null)
 
-const leftBoqId = ref<number | null>(null)
-const rightBoqId = ref<number | null>(null)
+const leftEoqId = ref<number | null>(null)
+const rightEoqId = ref<number | null>(null)
 const leftDocId = ref<number | null>(null)
 const rightDocId = ref<number | null>(null)
 const comparisons = ref<any[]>([])
@@ -155,7 +157,10 @@ const cadCaps = ref<CadCapabilities | null>(null)
 const bidTemplates = ref<BidTemplate[]>([])
 const bidFile = ref<File[] | File | null>(null)
 const bidLoading = ref(false)
+const bidUploading = ref(false)
 const bidError = ref<string | null>(null)
+const bidUploadProgress = ref(0)
+const bidUploadLabel = ref('')
 const bidMapResult = ref<BidMapResult | null>(null)
 
 const statuses = [
@@ -179,7 +184,7 @@ async function load() {
   await store.fetchProject(projectId.value)
   await Promise.all([
     loadAnalyses(),
-    loadBoqs(),
+    loadEoqs(),
     loadChat(),
     loadCost(),
     loadComparisons(),
@@ -211,15 +216,24 @@ async function uploadBidFile() {
   const file = Array.isArray(bidFile.value) ? bidFile.value[0] : bidFile.value
   if (!file) return
   bidLoading.value = true
+  bidUploading.value = true
   bidError.value = null
+  bidUploadProgress.value = 0
+  bidUploadLabel.value = `Uploading ${file.name}…`
   try {
-    await uploadBidTemplate(projectId.value, file)
+    await uploadBidTemplate(projectId.value, file, undefined, (percent) => {
+      bidUploadProgress.value = percent
+      bidUploadLabel.value = percent >= 100 ? 'Finishing upload…' : `Uploading ${file.name}…`
+    })
     bidFile.value = null
+    bidUploadProgress.value = 100
+    bidUploadLabel.value = 'Upload complete'
     await loadBidTemplates()
   } catch (err) {
     bidError.value = extractDetail(err, 'Bid template upload failed')
   } finally {
     bidLoading.value = false
+    bidUploading.value = false
   }
 }
 
@@ -248,7 +262,7 @@ async function removeBid(id: number) {
 }
 
 async function runBidMap() {
-  if (!activeBoq.value) {
+  if (!activeEoq.value) {
     bidError.value = 'Generate an Estimate Of Quantities first, then re-map it to the active bid template.'
     return
   }
@@ -259,9 +273,16 @@ async function runBidMap() {
   bidLoading.value = true
   bidError.value = null
   try {
-    bidMapResult.value = await mapBoqToBid(projectId.value, activeBoq.value.id)
-    await loadBoqs()
-    tab.value = 'boq'
+    bidMapResult.value = await mapEoqToBid(projectId.value, activeEoq.value.id)
+    await loadEoqs()
+    tab.value = 'eoq'
+    if (bidMapResult.value && bidMapResult.value.matched === 0) {
+      bidError.value =
+        `Re-map finished but 0 / ${bidMapResult.value.total} items matched the active bid list. ` +
+        'Check Bid templates → template is Active and shows the expected line count. ' +
+        'Descriptions/units in the bid file must be similar to plan takeoff wording. ' +
+        'Best fix: keep template Active → Analyze PDF again → Generate Estimate Of Quantities (do not rely on Re-map alone).'
+    }
   } catch (err) {
     bidError.value = extractDetail(err, 'Re-map to template failed')
   } finally {
@@ -270,12 +291,12 @@ async function runBidMap() {
 }
 
 async function loadAnalyses() { analyses.value = await listAnalyses(projectId.value) }
-async function loadBoqs() {
-  boqs.value = await listBoqs(projectId.value)
-  activeBoq.value = boqs.value[0] || null
-  if (boqs.value.length >= 2) {
-    leftBoqId.value = boqs.value[1]?.id ?? null
-    rightBoqId.value = boqs.value[0]?.id ?? null
+async function loadEoqs() {
+  eoqs.value = await listEoqs(projectId.value)
+  activeEoq.value = eoqs.value[0] || null
+  if (eoqs.value.length >= 2) {
+    leftEoqId.value = eoqs.value[1]?.id ?? null
+    rightEoqId.value = eoqs.value[0]?.id ?? null
   }
 }
 async function loadChat() {
@@ -331,10 +352,41 @@ async function uploadFiles() {
   if (!selectedFiles.value.length) { uploadError.value = 'Choose at least one file'; return }
   uploading.value = true
   uploadError.value = null
+  uploadProgress.value = 0
+  uploadProgressLabel.value = 'Preparing upload…'
+  const files = [...selectedFiles.value]
+  const totalBytes = files.reduce((sum, f) => sum + (f.size || 0), 0) || files.length
+  let completedBytes = 0
   try {
-    for (const file of selectedFiles.value) {
-      await store.upload(projectId.value, file, revisionLabel.value || undefined, notes.value || undefined)
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      const fileWeight = file.size || Math.floor(totalBytes / files.length) || 1
+      uploadProgressLabel.value =
+        files.length > 1
+          ? `Uploading ${i + 1} of ${files.length}: ${file.name}`
+          : `Uploading ${file.name}…`
+      await store.upload(
+        projectId.value,
+        file,
+        revisionLabel.value || undefined,
+        notes.value || undefined,
+        (percent) => {
+          const currentBytes = (fileWeight * Math.min(100, percent)) / 100
+          const overall = Math.min(100, Math.round(((completedBytes + currentBytes) / totalBytes) * 100))
+          uploadProgress.value = overall
+          if (percent >= 100) {
+            uploadProgressLabel.value =
+              files.length > 1
+                ? `Finishing ${i + 1} of ${files.length}: ${file.name}`
+                : 'Finishing upload…'
+          }
+        },
+      )
+      completedBytes += fileWeight
+      uploadProgress.value = Math.min(100, Math.round((completedBytes / totalBytes) * 100))
     }
+    uploadProgress.value = 100
+    uploadProgressLabel.value = files.length > 1 ? `Uploaded ${files.length} files` : 'Upload complete'
     selectedFiles.value = []
     revisionLabel.value = ''
     notes.value = ''
@@ -550,55 +602,55 @@ onUnmounted(() => {
   clearAnalyzeProgressTimer()
   analyzeAbort?.abort()
 })
-async function runGenerateBoq(documentIds?: number[]) {
-  boqLoading.value = true
-  boqSourceDocId.value = documentIds?.length === 1 ? documentIds[0]! : null
-  boqError.value = null
+async function runGenerateEoq(documentIds?: number[]) {
+  eoqLoading.value = true
+  eoqSourceDocId.value = documentIds?.length === 1 ? documentIds[0]! : null
+  eoqError.value = null
   try {
-    const boq = await generateBoq(
+    const eoq = await generateEoq(
       projectId.value,
       documentIds?.length ? { documentIds } : undefined,
     )
-    await loadBoqs()
-    activeBoq.value = boq
-    tab.value = 'boq'
+    await loadEoqs()
+    activeEoq.value = eoq
+    tab.value = 'eoq'
   } catch (err) {
-    boqError.value = extractDetail(err, 'Estimate Of Quantities generation failed')
+    eoqError.value = extractDetail(err, 'Estimate Of Quantities generation failed')
   } finally {
-    boqLoading.value = false
-    boqSourceDocId.value = null
+    eoqLoading.value = false
+    eoqSourceDocId.value = null
   }
 }
 
-async function runGenerateBoqForDoc(documentId: number) {
-  await runGenerateBoq([documentId])
+async function runGenerateEoqForDoc(documentId: number) {
+  await runGenerateEoq([documentId])
 }
 
-async function runGenerateBoqScoped() {
-  if (!boqScopeDocIds.value.length) {
-    boqError.value = 'Select one or more files, or use Generate (all files).'
+async function runGenerateEoqScoped() {
+  if (!eoqScopeDocIds.value.length) {
+    eoqError.value = 'Select one or more files, or use Generate (all files).'
     return
   }
-  await runGenerateBoq([...boqScopeDocIds.value])
+  await runGenerateEoq([...eoqScopeDocIds.value])
 }
 
-function toggleBoqScope(docId: number) {
-  const idx = boqScopeDocIds.value.indexOf(docId)
-  if (idx >= 0) boqScopeDocIds.value.splice(idx, 1)
-  else boqScopeDocIds.value.push(docId)
+function toggleEoqScope(docId: number) {
+  const idx = eoqScopeDocIds.value.indexOf(docId)
+  if (idx >= 0) eoqScopeDocIds.value.splice(idx, 1)
+  else eoqScopeDocIds.value.push(docId)
 }
 async function exportExcel() {
-  if (!activeBoq.value) return
-  await downloadBoqExcel(activeBoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeBoq.value.version}.xlsx`)
+  if (!activeEoq.value) return
+  await downloadEoqExcel(activeEoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeEoq.value.version}.xlsx`)
 }
 async function exportCsv() {
-  if (!activeBoq.value) return
-  await downloadBoqCsv(activeBoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeBoq.value.version}.csv`)
+  if (!activeEoq.value) return
+  await downloadEoqCsv(activeEoq.value.id, `AutoVAD_Estimate_Of_Quantities_v${activeEoq.value.version}.csv`)
 }
 async function approval(action: 'submit' | 'approve' | 'reject') {
-  if (!activeBoq.value) return
-  activeBoq.value = await updateBoqApproval(activeBoq.value.id, action)
-  await loadBoqs()
+  if (!activeEoq.value) return
+  activeEoq.value = await updateEoqApproval(activeEoq.value.id, action)
+  await loadEoqs()
   await store.fetchProject(projectId.value)
 }
 function openSource(item: { source_document_id: number | null; source_page: number | null }) {
@@ -610,7 +662,7 @@ function openSource(item: { source_document_id: number | null; source_page: numb
   })
 }
 
-function sourceLabel(item: BOQItem): string {
+function sourceLabel(item: EOQItem): string {
   if (item.source_reference) return item.source_reference
   if (item.source_document_id) {
     return item.source_page ? `Doc #${item.source_document_id} p.${item.source_page}` : `Doc #${item.source_document_id}`
@@ -618,33 +670,33 @@ function sourceLabel(item: BOQItem): string {
   return '—'
 }
 
-async function verifyBoqItem(item: BOQItem) {
-  if (!activeBoq.value) return
-  boqItemSaving.value = item.id
-  boqError.value = null
+async function verifyEoqItem(item: EOQItem) {
+  if (!activeEoq.value) return
+  eoqItemSaving.value = item.id
+  eoqError.value = null
   try {
-    const updated = await updateBoqItem(item.id, { status: 'verified' })
-    const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
-    if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
+    const updated = await updateEoqItem(item.id, { status: 'verified' })
+    const idx = activeEoq.value.items.findIndex((i) => i.id === item.id)
+    if (idx >= 0) activeEoq.value.items[idx] = { ...activeEoq.value.items[idx], ...updated }
   } catch (err) {
-    boqError.value = extractDetail(err, 'Could not verify Estimate Of Quantities item')
+    eoqError.value = extractDetail(err, 'Could not verify Estimate Of Quantities item')
   } finally {
-    boqItemSaving.value = null
+    eoqItemSaving.value = null
   }
 }
 
-async function markBoqItemReview(item: BOQItem) {
-  if (!activeBoq.value) return
-  boqItemSaving.value = item.id
-  boqError.value = null
+async function markEoqItemReview(item: EOQItem) {
+  if (!activeEoq.value) return
+  eoqItemSaving.value = item.id
+  eoqError.value = null
   try {
-    const updated = await updateBoqItem(item.id, { status: 'needs_review' })
-    const idx = activeBoq.value.items.findIndex((i) => i.id === item.id)
-    if (idx >= 0) activeBoq.value.items[idx] = { ...activeBoq.value.items[idx], ...updated }
+    const updated = await updateEoqItem(item.id, { status: 'needs_review' })
+    const idx = activeEoq.value.items.findIndex((i) => i.id === item.id)
+    if (idx >= 0) activeEoq.value.items[idx] = { ...activeEoq.value.items[idx], ...updated }
   } catch (err) {
-    boqError.value = extractDetail(err, 'Could not update Estimate Of Quantities item')
+    eoqError.value = extractDetail(err, 'Could not update Estimate Of Quantities item')
   } finally {
-    boqItemSaving.value = null
+    eoqItemSaving.value = null
   }
 }
 async function sendChat(question?: string) {
@@ -655,7 +707,7 @@ async function sendChat(question?: string) {
   chatInput.value = ''
   try {
     await askChat(projectId.value, q)
-    await Promise.all([loadChat(), loadAnalyses(), loadBoqs(), loadCad(), loadCost(), loadBidTemplates()])
+    await Promise.all([loadChat(), loadAnalyses(), loadEoqs(), loadCad(), loadCost(), loadBidTemplates()])
     await store.fetchProject(projectId.value)
   } catch (err) {
     chatError.value = extractDetail(err, 'Chat failed')
@@ -672,18 +724,18 @@ async function downloadFromChat(src: Record<string, unknown>) {
   const href = String(src.href || '')
   const filename = String(src.filename || 'download.bin')
   if (!href) return
-  // Reuse authenticated API client via existing BOQ helpers when possible
+  // Reuse authenticated API client via existing EOQ helpers when possible
   if (href.includes('/export/excel')) {
-    const boqId = Number(href.split('/boq/')[1]?.split('/')[0])
-    if (boqId) {
-      await downloadBoqExcel(boqId, filename)
+    const eoqId = Number(href.split('/eoq/')[1]?.split('/')[0])
+    if (eoqId) {
+      await downloadEoqExcel(eoqId, filename)
       return
     }
   }
   if (href.includes('/export/csv')) {
-    const boqId = Number(href.split('/boq/')[1]?.split('/')[0])
-    if (boqId) {
-      await downloadBoqCsv(boqId, filename)
+    const eoqId = Number(href.split('/eoq/')[1]?.split('/')[0])
+    if (eoqId) {
+      await downloadEoqCsv(eoqId, filename)
       return
     }
   }
@@ -701,22 +753,22 @@ async function uploadSorFile() {
   finally { costLoading.value = false }
 }
 async function runEstimate() {
-  if (!activeBoq.value) { costError.value = 'Generate an Estimate Of Quantities first'; return }
+  if (!activeEoq.value) { costError.value = 'Generate an Estimate Of Quantities first'; return }
   costLoading.value = true
   costError.value = null
   try {
-    await createEstimate(projectId.value, activeBoq.value.id)
+    await createEstimate(projectId.value, activeEoq.value.id)
     await loadCost()
-    await loadBoqs()
+    await loadEoqs()
   } catch (err) { costError.value = extractDetail(err, 'Cost estimate failed') }
   finally { costLoading.value = false }
 }
-async function runBoqCompare() {
-  if (!leftBoqId.value || !rightBoqId.value) return
+async function runEoqCompare() {
+  if (!leftEoqId.value || !rightEoqId.value) return
   compareLoading.value = true
   compareError.value = null
   try {
-    await compareBoqs(projectId.value, leftBoqId.value, rightBoqId.value)
+    await compareEoqs(projectId.value, leftEoqId.value, rightEoqId.value)
     await loadComparisons()
   } catch (err) { compareError.value = extractDetail(err, 'Estimate Of Quantities compare failed') }
   finally { compareLoading.value = false }
@@ -817,7 +869,7 @@ const cadDocuments = computed(() =>
         </div>
         <div class="d-flex flex-wrap ga-2">
           <v-btn color="primary" :loading="analyzing" prepend-icon="mdi-brain" @click="runAnalyzeAll">Analyze</v-btn>
-          <v-btn color="secondary" variant="tonal" :loading="boqLoading" @click="runGenerateBoq()">Generate Estimate Of Quantities</v-btn>
+          <v-btn color="secondary" variant="tonal" :loading="eoqLoading" @click="runGenerateEoq()">Generate Estimate Of Quantities</v-btn>
           <v-btn variant="tonal" @click="openEdit">Edit</v-btn>
           <v-btn variant="outlined" color="warning" @click="archiveProject">Archive</v-btn>
           <v-btn variant="outlined" color="error" prepend-icon="mdi-delete-outline" @click="deleteProject">
@@ -826,14 +878,14 @@ const cadDocuments = computed(() =>
         </div>
       </div>
 
-      <v-alert v-if="analyzeError || boqError" type="error" variant="tonal" class="mb-4" closable @click:close="analyzeError = null; boqError = null">
-        {{ analyzeError || boqError }}
+      <v-alert v-if="analyzeError || eoqError" type="error" variant="tonal" class="mb-4" closable @click:close="analyzeError = null; eoqError = null">
+        {{ analyzeError || eoqError }}
       </v-alert>
 
       <v-tabs v-model="tab" color="primary" class="mb-4" show-arrows>
         <v-tab value="documents">Documents</v-tab>
         <v-tab value="cad">CAD / Civil 3D</v-tab>
-        <v-tab value="boq">Estimate Of Quantities</v-tab>
+        <v-tab value="eoq">Estimate Of Quantities</v-tab>
         <v-tab value="bid">Bid templates</v-tab>
         <v-tab value="cost">Cost</v-tab>
         <v-tab value="compare">Compare</v-tab>
@@ -865,7 +917,21 @@ const cadDocuments = computed(() =>
                 </details>
                 <v-text-field v-model="revisionLabel" label="Revision label" class="mb-2" />
                 <v-textarea v-model="notes" label="Notes" rows="2" class="mb-3" />
-                <v-btn color="primary" block :loading="uploading" @click="uploadFiles">Upload</v-btn>
+                <div v-if="uploading" class="upload-progress mb-3">
+                  <div class="d-flex justify-space-between align-center text-caption mb-1">
+                    <span class="upload-progress__label">{{ uploadProgressLabel }}</span>
+                    <span class="upload-progress__pct font-weight-medium">{{ uploadProgress }}%</span>
+                  </div>
+                  <v-progress-linear
+                    :model-value="uploadProgress"
+                    color="primary"
+                    height="8"
+                    rounded
+                  />
+                </div>
+                <v-btn color="primary" block :disabled="uploading" @click="uploadFiles">
+                  {{ uploading ? `Uploading ${uploadProgress}%` : 'Upload' }}
+                </v-btn>
               </div>
             </v-col>
             <v-col cols="12" lg="7">
@@ -892,9 +958,9 @@ const cadDocuments = computed(() =>
                         size="small"
                         color="secondary"
                         variant="tonal"
-                        :loading="boqLoading && boqSourceDocId === doc.id"
+                        :loading="eoqLoading && eoqSourceDocId === doc.id"
                         :disabled="doc.processing_status === 'processing' || doc.processing_status === 'queued'"
-                        @click="runGenerateBoqForDoc(doc.id)"
+                        @click="runGenerateEoqForDoc(doc.id)"
                       >
                         Estimate Of Quantities
                       </v-btn>
@@ -995,8 +1061,8 @@ const cadDocuments = computed(() =>
                   size="small"
                   color="secondary"
                   variant="tonal"
-                  :loading="boqLoading && boqSourceDocId === doc.id"
-                  @click="runGenerateBoqForDoc(doc.id)"
+                  :loading="eoqLoading && eoqSourceDocId === doc.id"
+                  @click="runGenerateEoqForDoc(doc.id)"
                 >
                   Estimate Of Quantities
                 </v-btn>
@@ -1051,42 +1117,43 @@ const cadDocuments = computed(() =>
           </div>
         </v-tabs-window-item>
 
-        <v-tabs-window-item value="boq">
+        <v-tabs-window-item value="eoq">
           <div class="surface-panel pa-5">
             <div class="d-flex flex-wrap justify-space-between ga-3 mb-4">
               <div>
                 <h2 class="brand-font text-h6 mb-1">Estimate of Quantities</h2>
                 <p class="muted text-body-2 mb-0">
                   Items are grouped like a municipal bid schedule (Removals, Grading, Watermain, Sanitary Sewer, …).
-                  Excel download uses the same section layout.
+                  Excel includes the same layout plus <strong>Utility Stationing</strong> and
+                  <strong>Utility Connections</strong> sheets from DWG/DXF CAD takeoff (station-to-station LF, bends/fittings).
                 </p>
               </div>
               <div class="d-flex flex-wrap ga-2">
-                <v-btn variant="tonal" :loading="boqLoading && !boqScopeDocIds.length" @click="runGenerateBoq()">Generate all</v-btn>
+                <v-btn variant="tonal" :loading="eoqLoading && !eoqScopeDocIds.length" @click="runGenerateEoq()">Generate all</v-btn>
                 <v-btn
                   color="secondary"
                   variant="tonal"
-                  :loading="boqLoading && !!boqScopeDocIds.length"
-                  :disabled="!boqScopeDocIds.length"
-                  @click="runGenerateBoqScoped"
+                  :loading="eoqLoading && !!eoqScopeDocIds.length"
+                  :disabled="!eoqScopeDocIds.length"
+                  @click="runGenerateEoqScoped"
                 >
                   Generate selected
                 </v-btn>
                 <v-btn
                   color="secondary"
                   variant="tonal"
-                  :disabled="!activeBoq || !bidTemplates.length"
+                  :disabled="!activeEoq || !bidTemplates.length"
                   :loading="bidLoading"
                   title="Re-match an existing Estimate Of Quantities to the active bid template without regenerating"
                   @click="runBidMap"
                 >
                   Re-map to template
                 </v-btn>
-                <v-btn color="primary" :disabled="!activeBoq" @click="exportExcel">Excel</v-btn>
-                <v-btn variant="tonal" :disabled="!activeBoq" @click="exportCsv">CSV</v-btn>
-                <v-btn variant="tonal" :disabled="!activeBoq" @click="approval('submit')">Submit review</v-btn>
-                <v-btn color="success" variant="tonal" :disabled="!activeBoq" @click="approval('approve')">Approve</v-btn>
-                <v-btn color="error" variant="tonal" :disabled="!activeBoq" @click="approval('reject')">Reject</v-btn>
+                <v-btn color="primary" :disabled="!activeEoq" @click="exportExcel">Excel</v-btn>
+                <v-btn variant="tonal" :disabled="!activeEoq" @click="exportCsv">CSV</v-btn>
+                <v-btn variant="tonal" :disabled="!activeEoq" @click="approval('submit')">Submit review</v-btn>
+                <v-btn color="success" variant="tonal" :disabled="!activeEoq" @click="approval('approve')">Approve</v-btn>
+                <v-btn color="error" variant="tonal" :disabled="!activeEoq" @click="approval('reject')">Reject</v-btn>
               </div>
             </div>
             <div v-if="store.documents.length" class="doc-row mb-4 pa-3">
@@ -1094,39 +1161,39 @@ const cadDocuments = computed(() =>
               <div class="d-flex flex-wrap ga-2">
                 <v-chip
                   v-for="doc in store.documents"
-                  :key="`boq-scope-${doc.id}`"
+                  :key="`eoq-scope-${doc.id}`"
                   filter
                   variant="outlined"
-                  :color="boqScopeDocIds.includes(doc.id) ? 'secondary' : undefined"
-                  @click="toggleBoqScope(doc.id)"
+                  :color="eoqScopeDocIds.includes(doc.id) ? 'secondary' : undefined"
+                  @click="toggleEoqScope(doc.id)"
                 >
                   {{ doc.original_filename }}
                   <span class="text-caption ms-1">({{ analysisFor(doc.id)?.findings?.items?.length || 0 }} items)</span>
                 </v-chip>
               </div>
             </div>
-            <div v-if="!activeBoq" class="muted text-center py-10">Analyze documents / process CAD, then generate Estimate Of Quantities.</div>
+            <div v-if="!activeEoq" class="muted text-center py-10">Analyze documents / process CAD, then generate Estimate Of Quantities.</div>
             <template v-else>
               <div class="d-flex flex-wrap ga-2 mb-3 align-center">
-                <v-chip size="small" variant="tonal">{{ activeBoq.title }}</v-chip>
-                <v-chip size="small" variant="tonal">{{ activeBoq.status }}</v-chip>
+                <v-chip size="small" variant="tonal">{{ activeEoq.title }}</v-chip>
+                <v-chip size="small" variant="tonal">{{ activeEoq.status }}</v-chip>
                 <v-chip size="small" color="error" variant="tonal">
-                  {{ boqReviewCount }} need review
+                  {{ eoqReviewCount }} need review
                 </v-chip>
-                <v-chip v-if="boqUnmappedCount" size="small" color="warning" variant="tonal">
-                  {{ boqUnmappedCount }} unmapped
+                <v-chip v-if="eoqUnmappedCount" size="small" color="warning" variant="tonal">
+                  {{ eoqUnmappedCount }} unmapped
                 </v-chip>
                 <v-chip v-if="bidMapResult" size="small" color="success" variant="tonal">
                   Bid mapped {{ bidMapResult.matched }}/{{ bidMapResult.total }}
                 </v-chip>
-                <v-btn-toggle v-model="boqFilter" mandatory density="compact" class="ms-auto" variant="outlined" divided>
+                <v-btn-toggle v-model="eoqFilter" mandatory density="compact" class="ms-auto" variant="outlined" divided>
                   <v-btn value="all" size="small">All</v-btn>
                   <v-btn value="review" size="small">Engineer Review</v-btn>
                   <v-btn value="verified" size="small">Verified</v-btn>
                   <v-btn value="unmapped" size="small">Unmapped</v-btn>
                 </v-btn-toggle>
               </div>
-              <v-table density="comfortable" class="boq-table eoq-table">
+              <v-table density="comfortable" class="eoq-table eoq-table">
                 <thead>
                   <tr>
                     <th>Item No.</th>
@@ -1142,14 +1209,14 @@ const cadDocuments = computed(() =>
                   </tr>
                 </thead>
                 <tbody>
-                  <template v-for="section in groupedBoqSections" :key="section.group">
-                    <tr class="boq-section-row">
+                  <template v-for="section in groupedEoqSections" :key="section.group">
+                    <tr class="eoq-section-row">
                       <td colspan="10">
-                        <span class="boq-section-title">{{ section.group }}</span>
-                        <span class="boq-section-count">{{ section.items.length }} item{{ section.items.length === 1 ? '' : 's' }}</span>
+                        <span class="eoq-section-title">{{ section.group }}</span>
+                        <span class="eoq-section-count">{{ section.items.length }} item{{ section.items.length === 1 ? '' : 's' }}</span>
                       </td>
                     </tr>
-                    <tr v-for="item in section.items" :key="item.id" class="boq-item-row">
+                    <tr v-for="item in section.items" :key="item.id" class="eoq-item-row">
                       <td class="text-center">{{ item.display_number }}</td>
                       <td class="text-caption font-weight-medium text-center">
                         {{ standardBidItemNumber(item) || '—' }}
@@ -1160,7 +1227,7 @@ const cadDocuments = computed(() =>
                           {{ item.calculation_method }}
                         </div>
                         <v-chip
-                          v-if="isUnmappedBoqItem(item)"
+                          v-if="isUnmappedEoqItem(item)"
                           size="x-small"
                           color="warning"
                           variant="tonal"
@@ -1194,20 +1261,20 @@ const cadDocuments = computed(() =>
                         <v-chip
                           size="small"
                           variant="tonal"
-                          :color="boqItemStatusColor(item)"
+                          :color="eoqItemStatusColor(item)"
                         >
-                          {{ boqItemStatusLabel(item) }}
+                          {{ eoqItemStatusLabel(item) }}
                         </v-chip>
                       </td>
                       <td>
                         <div class="d-flex flex-wrap ga-1">
                           <v-btn
-                            v-if="boqItemStatusLabel(item) !== 'Verified'"
+                            v-if="eoqItemStatusLabel(item) !== 'Verified'"
                             size="x-small"
                             color="success"
                             variant="tonal"
-                            :loading="boqItemSaving === item.id"
-                            @click="verifyBoqItem(item)"
+                            :loading="eoqItemSaving === item.id"
+                            @click="verifyEoqItem(item)"
                           >
                             Verify
                           </v-btn>
@@ -1215,8 +1282,8 @@ const cadDocuments = computed(() =>
                             v-else
                             size="x-small"
                             variant="tonal"
-                            :loading="boqItemSaving === item.id"
-                            @click="markBoqItemReview(item)"
+                            :loading="eoqItemSaving === item.id"
+                            @click="markEoqItemReview(item)"
                           >
                             Re-review
                           </v-btn>
@@ -1224,7 +1291,7 @@ const cadDocuments = computed(() =>
                       </td>
                     </tr>
                   </template>
-                  <tr v-if="!groupedBoqSections.length">
+                  <tr v-if="!groupedEoqSections.length">
                     <td colspan="10" class="text-center muted py-6">No items in this filter.</td>
                   </tr>
                 </tbody>
@@ -1253,9 +1320,23 @@ const cadDocuments = computed(() =>
               class="mb-2"
             />
             <p class="text-caption muted mb-3">PDF / Excel / CSV. No file size limit.</p>
+            <div v-if="bidUploading" class="upload-progress mb-3">
+              <div class="d-flex justify-space-between align-center text-caption mb-1">
+                <span class="upload-progress__label">{{ bidUploadLabel }}</span>
+                <span class="upload-progress__pct font-weight-medium">{{ bidUploadProgress }}%</span>
+              </div>
+              <v-progress-linear
+                :model-value="bidUploadProgress"
+                color="primary"
+                height="8"
+                rounded
+              />
+            </div>
             <div class="d-flex flex-wrap ga-2 mb-4">
-              <v-btn color="primary" :loading="bidLoading" @click="uploadBidFile">Upload bid list</v-btn>
-              <v-btn variant="tonal" :disabled="!activeBoq || !bidTemplates.length" :loading="bidLoading" @click="runBidMap">
+              <v-btn color="primary" :disabled="bidLoading" @click="uploadBidFile">
+                {{ bidUploading ? `Uploading ${bidUploadProgress}%` : 'Upload bid list' }}
+              </v-btn>
+              <v-btn variant="tonal" :disabled="!activeEoq || !bidTemplates.length" :loading="bidLoading" @click="runBidMap">
                 Re-map active Estimate Of Quantities
               </v-btn>
             </div>
@@ -1296,6 +1377,10 @@ const cadDocuments = computed(() =>
             <div v-if="bidMapResult" class="analysis-box pa-3 mt-4">
               Mapped {{ bidMapResult.matched }} / {{ bidMapResult.total }} Estimate Of Quantities items to “{{ bidMapResult.template_name }}”.
               Unmatched: {{ bidMapResult.unmatched }}.
+              <span v-if="bidMapResult.matched === 0" class="d-block mt-2 text-caption">
+                0 matches usually means the bid list wording/units differ from plan takeoff, or the wrong bid file is Active.
+                Prefer: Activate bid list → Analyze → Generate (Re-map only retries matching on the current Estimate Of Quantities).
+              </span>
             </div>
           </div>
         </v-tabs-window-item>
@@ -1337,9 +1422,9 @@ const cadDocuments = computed(() =>
             <v-row>
               <v-col cols="12" md="6">
                 <h3 class="text-subtitle-2 mb-2">Estimate Of Quantities vs Estimate Of Quantities</h3>
-                <v-select v-model="leftBoqId" :items="boqs" item-title="title" item-value="id" label="Left Estimate Of Quantities" class="mb-2" />
-                <v-select v-model="rightBoqId" :items="boqs" item-title="title" item-value="id" label="Right Estimate Of Quantities" class="mb-2" />
-                <v-btn color="primary" :loading="compareLoading" @click="runBoqCompare">Compare Estimates Of Quantities</v-btn>
+                <v-select v-model="leftEoqId" :items="eoqs" item-title="title" item-value="id" label="Left Estimate Of Quantities" class="mb-2" />
+                <v-select v-model="rightEoqId" :items="eoqs" item-title="title" item-value="id" label="Right Estimate Of Quantities" class="mb-2" />
+                <v-btn color="primary" :loading="compareLoading" @click="runEoqCompare">Compare Estimates Of Quantities</v-btn>
               </v-col>
               <v-col cols="12" md="6">
                 <h3 class="text-subtitle-2 mb-2">Drawing revision compare</h3>
@@ -1539,7 +1624,7 @@ const cadDocuments = computed(() =>
             <v-btn
               v-if="analyzeStatus === 'success'"
               color="primary"
-              @click="closeAnalyzeModal(); tab = 'boq'"
+              @click="closeAnalyzeModal(); tab = 'eoq'"
             >
               Go to Estimate Of Quantities
             </v-btn>
@@ -1558,6 +1643,15 @@ const cadDocuments = computed(() =>
 </template>
 
 <style scoped>
+.upload-progress__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 75%;
+}
+.upload-progress__pct {
+  flex-shrink: 0;
+}
 .analyze-modal {
   position: relative;
   overflow: hidden;
@@ -1854,7 +1948,7 @@ const cadDocuments = computed(() =>
   opacity: 0.85;
 }
 
-.boq-table td {
+.eoq-table td {
   vertical-align: top;
 }
 
@@ -1869,7 +1963,7 @@ const cadDocuments = computed(() =>
   text-transform: uppercase;
 }
 
-.boq-section-row td {
+.eoq-section-row td {
   background: rgba(217, 255, 67, 0.1) !important;
   border-top: 1px solid rgba(217, 255, 67, 0.28);
   border-bottom: 1px solid rgba(217, 255, 67, 0.18);
@@ -1878,7 +1972,7 @@ const cadDocuments = computed(() =>
   vertical-align: middle;
 }
 
-.boq-section-title {
+.eoq-section-title {
   font-family: var(--font-brand, inherit);
   font-weight: 700;
   font-size: 0.95rem;
@@ -1886,13 +1980,13 @@ const cadDocuments = computed(() =>
   letter-spacing: 0.02em;
 }
 
-.boq-section-count {
+.eoq-section-count {
   margin-left: 10px;
   font-size: 0.75rem;
   color: rgba(201, 211, 205, 0.7);
 }
 
-.boq-item-row td {
+.eoq-item-row td {
   border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
 }
 </style>

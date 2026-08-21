@@ -38,10 +38,10 @@ export function statusColor(status: string): string {
   return map[status] || 'secondary'
 }
 
-/** AutoVAD BOQ line status: Verified (>=97) or Engineer Review. */
-export const BOQ_CONFIDENCE_VERIFIED_THRESHOLD = 97
+/** AutoVAD EOQ line status: Verified (>=97) or Engineer Review. */
+export const EOQ_CONFIDENCE_VERIFIED_THRESHOLD = 97
 
-export function boqItemStatusLabel(item: {
+export function eoqItemStatusLabel(item: {
   status?: string | null
   confidence?: number | string | null
 }): string {
@@ -54,17 +54,17 @@ export function boqItemStatusLabel(item: {
     item.confidence === null || item.confidence === undefined || item.confidence === ''
       ? null
       : Number(item.confidence)
-  if (conf != null && !Number.isNaN(conf) && conf >= BOQ_CONFIDENCE_VERIFIED_THRESHOLD) {
+  if (conf != null && !Number.isNaN(conf) && conf >= EOQ_CONFIDENCE_VERIFIED_THRESHOLD) {
     return 'Verified'
   }
   return 'Engineer Review'
 }
 
-export function boqItemStatusColor(item: {
+export function eoqItemStatusColor(item: {
   status?: string | null
   confidence?: number | string | null
 }): string {
-  return boqItemStatusLabel(item) === 'Verified' ? 'success' : 'error'
+  return eoqItemStatusLabel(item) === 'Verified' ? 'success' : 'error'
 }
 
 export function standardBidItemNumber(item: {
@@ -75,7 +75,7 @@ export function standardBidItemNumber(item: {
   return ''
 }
 
-export function isUnmappedBoqItem(item: {
+export function isUnmappedEoqItem(item: {
   bid_template_line_id?: number | null
   category?: string | null
 }): boolean {

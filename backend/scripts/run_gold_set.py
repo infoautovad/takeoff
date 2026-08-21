@@ -15,16 +15,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.services.boq_eval import compare_boq, summarize_report  # noqa: E402
+from app.services.eoq_eval import compare_eoq, summarize_report  # noqa: E402
 from app.services.cad.quantity_engine import build_quantities  # noqa: E402
 
 GOLD_ROOT = ROOT / "tests" / "gold_set" / "cases"
 
 
 def run_case(case_dir: Path) -> dict:
-    expected = json.loads((case_dir / "expected_boq.json").read_text(encoding="utf-8"))
+    expected = json.loads((case_dir / "expected_eoq.json").read_text(encoding="utf-8"))
     extraction_path = case_dir / "extraction.json"
-    actual_path = case_dir / "actual_boq.json"
+    actual_path = case_dir / "actual_eoq.json"
 
     if extraction_path.exists():
         extraction = json.loads(extraction_path.read_text(encoding="utf-8"))
@@ -34,9 +34,9 @@ def run_case(case_dir: Path) -> dict:
         if isinstance(actual, dict):
             actual = actual.get("items") or []
     else:
-        raise FileNotFoundError(f"{case_dir}: need extraction.json or actual_boq.json")
+        raise FileNotFoundError(f"{case_dir}: need extraction.json or actual_eoq.json")
 
-    report = compare_boq(expected, actual)
+    report = compare_eoq(expected, actual)
     return {
         "case": expected.get("id") or case_dir.name,
         "name": expected.get("name") or case_dir.name,
@@ -45,7 +45,7 @@ def run_case(case_dir: Path) -> dict:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run AutoVAD gold-set BOQ comparisons")
+    parser = argparse.ArgumentParser(description="Run AutoVAD gold-set EOQ comparisons")
     parser.add_argument("--case", help="Run a single case id (folder name)")
     parser.add_argument("--json", action="store_true", help="Emit JSON reports")
     args = parser.parse_args()

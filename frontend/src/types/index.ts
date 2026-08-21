@@ -42,7 +42,7 @@ export interface Project {
   created_at: string
   updated_at: string
   document_count: number
-  boq_count?: number
+  eoq_count?: number
 }
 
 export interface DocumentItem {
@@ -66,7 +66,7 @@ export interface DashboardStats {
   total_projects: number
   active_projects: number
   documents_uploaded: number
-  boqs_generated: number
+  eoqs_generated: number
   pending_reviews: number
   recent_activity: Array<{
     id: number
@@ -87,7 +87,7 @@ export interface DashboardStats {
   }>
   week?: {
     documents_uploaded: number
-    boqs_generated: number
+    eoqs_generated: number
     projects_touched: number
     failed_uploads: number
   }
@@ -127,12 +127,12 @@ export interface AnalyticsSnapshot {
   }
   pavement: Record<string, number>
   meta: {
-    boq_count: number
+    eoq_count: number
     estimate_count: number
     project_count: number
     item_count: number
     last_updated: string | null
-    has_boqs: boolean
+    has_eoqs: boolean
     has_estimates: boolean
     range?: string
   }
@@ -193,9 +193,9 @@ export interface ProcessResult {
   error: string | null
 }
 
-export interface BOQItem {
+export interface EOQItem {
   id: number
-  boq_id: number
+  eoq_id: number
   item_number: string
   item_code: string | null
   csi_code?: string | null
@@ -217,7 +217,7 @@ export interface BOQItem {
   updated_at: string
 }
 
-export interface BOQ {
+export interface EOQ {
   id: number
   project_id: number
   title: string
@@ -228,7 +228,7 @@ export interface BOQ {
   created_by: number
   created_at: string
   updated_at: string
-  items: BOQItem[]
+  items: EOQItem[]
 }
 
 export interface ChatMessage {

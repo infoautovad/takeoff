@@ -65,7 +65,7 @@ def _migrate_sqlite() -> None:
     if _sqlite_table_exists("notifications") and "is_read" not in _sqlite_columns("notifications"):
         rebuild.append("notifications")
 
-    # Additive columns for CSI + bid mapping on existing BOQ items
+    # Additive columns for CSI + bid mapping on existing EOQ items
     if _sqlite_table_exists("boq_items"):
         cols = _sqlite_columns("boq_items")
         alters: list[str] = []
@@ -80,12 +80,40 @@ def _migrate_sqlite() -> None:
                 for stmt in alters:
                     conn.execute(text(stmt))
 
+    # CAD utility stationing / connections detail for Excel sheets
+    if _sqlite_table_exists("cad_models"):
+        cols = _sqlite_columns("cad_models")
+        if "utilities_detail_json" not in cols:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE cad_models ADD COLUMN utilities_detail_json TEXT"))
+
     # Subscription plan on users (registration)
     if _sqlite_table_exists("users"):
         cols = _sqlite_columns("users")
         if "plan" not in cols:
             with engine.begin() as conn:
                 conn.execute(text("ALTER TABLE users ADD COLUMN plan VARCHAR(32) DEFAULT 'starter' NOT NULL"))
+
+    # Training lab: original EOQ source file metadata + AutoVAD EOQ cache
+    if _sqlite_table_exists("training_cases"):
+        cols = _sqlite_columns("training_cases")
+        alters: list[str] = []
+        if "expected_filename" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN expected_filename VARCHAR(512)")
+        if "expected_storage_key" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN expected_storage_key VARCHAR(1024)")
+        if "actual_json" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN actual_json TEXT")
+        if "actual_engine" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN actual_engine VARCHAR(64)")
+        if "actual_notes" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN actual_notes TEXT")
+        if "analyzed_at" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN analyzed_at DATETIME")
+        if alters:
+            with engine.begin() as conn:
+                for stmt in alters:
+                    conn.execute(text(stmt))
 
     if rebuild:
         with engine.begin() as conn:

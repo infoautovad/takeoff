@@ -7,20 +7,21 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.routes.projects import _get_accessible_project
 from app.database import get_db
-from app.models.boq import BOQItemStatus, BOQStatus
 from app.models.document import Document
+from app.models.eoq import EOQItemStatus, EOQStatus
 from app.models.project import ProjectStatus
 from app.models.user import User
-from app.schemas.boq import BOQItemOut, BOQItemUpdate, BOQOut
+from app.schemas.eoq import EOQItemOut, EOQItemUpdate, EOQOut
 from app.services.activity import log_activity
-from app.services.boq_service import (
-    export_boq_csv,
-    export_boq_excel,
-    generate_boq_for_project,
-    get_boq,
-    get_boq_item,
-    list_project_boqs,
-    update_boq_item,
+from app.services.eoq_service import (
+    export_eoq_csv,
+    export_eoq_excel,
+    generate_eoq_for_project,
+    get_eoq,
+    get_eoq_item,
+    list_project_eoqs,
+    load_project_utilities_detail,
+    update_eoq_item,
 )
 from app.services.notifications import notify
 
@@ -32,28 +33,28 @@ class ApprovalIn(BaseModel):
     note: str | None = None
 
 
-class GenerateBoqIn(BaseModel):
+class GenerateEoqIn(BaseModel):
     """Optional document scope — omit or empty = all analyzed files in the project."""
     document_ids: list[int] | None = Field(default=None)
 
 
-@router.get("/projects/{project_id}", response_model=list[BOQOut])
-def list_boqs(
+@router.get("/projects/{project_id}", response_model=list[EOQOut])
+def list_eoqs(
     project_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> list[BOQOut]:
+) -> list[EOQOut]:
     _get_accessible_project(db, project_id, current_user)
-    return [BOQOut.model_validate(b) for b in list_project_boqs(db, project_id)]
+    return [EOQOut.model_validate(e) for e in list_project_eoqs(db, project_id)]
 
 
-@router.post("/projects/{project_id}/generate", response_model=BOQOut)
-def generate_boq(
+@router.post("/projects/{project_id}/generate", response_model=EOQOut)
+def generate_eoq(
     project_id: int,
-    payload: GenerateBoqIn = GenerateBoqIn(),
+    payload: GenerateEoqIn = GenerateEoqIn(),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> BOQOut:
+) -> EOQOut:
     project = _get_accessible_project(db, project_id, current_user)
     document_ids = payload.document_ids or None
     if document_ids:
@@ -71,7 +72,7 @@ def generate_boq(
             raise HTTPException(status_code=400, detail=f"Document(s) not in this project: {missing}")
 
     try:
-        boq = generate_boq_for_project(
+        eoq = generate_eoq_for_project(
             db,
             project,
             current_user.id,
@@ -87,54 +88,54 @@ def generate_boq(
         db,
         user_id=current_user.id,
         project_id=project_id,
-        action="boq_generated",
-        message=f"Generated Estimate Of Quantities v{boq.version}{scope_msg}",
-        entity_type="boq",
-        entity_id=boq.id,
+        action="eoq_generated",
+        message=f"Generated Estimate Of Quantities v{eoq.version}{scope_msg}",
+        entity_type="eoq",
+        entity_id=eoq.id,
     )
     notify(
         db,
         user_id=current_user.id,
         project_id=project_id,
         title="Estimate Of Quantities generated",
-        message=f"{boq.title} is ready for review",
-        category="boq",
+        message=f"{eoq.title} is ready for review",
+        category="eoq",
     )
-    return BOQOut.model_validate(boq)
+    return EOQOut.model_validate(eoq)
 
 
-@router.get("/{boq_id}", response_model=BOQOut)
-def get_boq_detail(
-    boq_id: int,
+@router.get("/{eoq_id}", response_model=EOQOut)
+def get_eoq_detail(
+    eoq_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> BOQOut:
-    boq = get_boq(db, boq_id)
-    if not boq:
+) -> EOQOut:
+    eoq = get_eoq(db, eoq_id)
+    if not eoq:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
-    _get_accessible_project(db, boq.project_id, current_user)
-    return BOQOut.model_validate(boq)
+    _get_accessible_project(db, eoq.project_id, current_user)
+    return EOQOut.model_validate(eoq)
 
 
-@router.patch("/items/{item_id}", response_model=BOQItemOut)
-def patch_boq_item(
+@router.patch("/items/{item_id}", response_model=EOQItemOut)
+def patch_eoq_item(
     item_id: int,
-    payload: BOQItemUpdate,
+    payload: EOQItemUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> BOQItemOut:
-    item = get_boq_item(db, item_id)
+) -> EOQItemOut:
+    item = get_eoq_item(db, item_id)
     if not item:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities item not found")
-    boq = get_boq(db, item.boq_id)
-    if not boq:
+    eoq = get_eoq(db, item.eoq_id)
+    if not eoq:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
-    _get_accessible_project(db, boq.project_id, current_user)
+    _get_accessible_project(db, eoq.project_id, current_user)
 
-    if payload.status is not None and payload.status not in set(BOQItemStatus):
+    if payload.status is not None and payload.status not in set(EOQItemStatus):
         raise HTTPException(status_code=400, detail="Invalid item status")
 
-    updated = update_boq_item(
+    updated = update_eoq_item(
         db,
         item,
         status=payload.status,
@@ -147,28 +148,31 @@ def patch_boq_item(
     log_activity(
         db,
         user_id=current_user.id,
-        project_id=boq.project_id,
-        action="boq_item_updated",
+        project_id=eoq.project_id,
+        action="eoq_item_updated",
         message=f"Updated Estimate Of Quantities item {updated.item_number}: {updated.description[:80]}",
-        entity_type="boq_item",
+        entity_type="eoq_item",
         entity_id=updated.id,
     )
-    return BOQItemOut.model_validate(updated)
+    return EOQItemOut.model_validate(updated)
 
 
-@router.get("/{boq_id}/export/excel")
-def download_boq_excel(
-    boq_id: int,
+@router.get("/{eoq_id}/export/excel")
+def download_eoq_excel(
+    eoq_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    boq = get_boq(db, boq_id)
-    if not boq:
+    eoq = get_eoq(db, eoq_id)
+    if not eoq:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
-    _get_accessible_project(db, boq.project_id, current_user)
+    _get_accessible_project(db, eoq.project_id, current_user)
 
-    content = export_boq_excel(boq)
-    filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{boq.project_id}.xlsx"
+    content = export_eoq_excel(
+        eoq,
+        utilities_detail=load_project_utilities_detail(db, eoq.project_id),
+    )
+    filename = f"AutoVAD_Estimate_Of_Quantities_v{eoq.version}_{eoq.project_id}.xlsx"
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -176,19 +180,19 @@ def download_boq_excel(
     )
 
 
-@router.get("/{boq_id}/export/csv")
-def download_boq_csv(
-    boq_id: int,
+@router.get("/{eoq_id}/export/csv")
+def download_eoq_csv(
+    eoq_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> Response:
-    boq = get_boq(db, boq_id)
-    if not boq:
+    eoq = get_eoq(db, eoq_id)
+    if not eoq:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
-    _get_accessible_project(db, boq.project_id, current_user)
+    _get_accessible_project(db, eoq.project_id, current_user)
 
-    content = export_boq_csv(boq)
-    filename = f"AutoVAD_Estimate_Of_Quantities_v{boq.version}_{boq.project_id}.csv"
+    content = export_eoq_csv(eoq)
+    filename = f"AutoVAD_Estimate_Of_Quantities_v{eoq.version}_{eoq.project_id}.csv"
     return Response(
         content=content,
         media_type="text/csv; charset=utf-8",
@@ -199,41 +203,41 @@ def download_boq_csv(
     )
 
 
-@router.post("/{boq_id}/approval", response_model=BOQOut)
-def update_boq_approval(
-    boq_id: int,
+@router.post("/{eoq_id}/approval", response_model=EOQOut)
+def update_eoq_approval(
+    eoq_id: int,
     payload: ApprovalIn,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> BOQOut:
-    boq = get_boq(db, boq_id)
-    if not boq:
+) -> EOQOut:
+    eoq = get_eoq(db, eoq_id)
+    if not eoq:
         raise HTTPException(status_code=404, detail="Estimate Of Quantities not found")
-    project = _get_accessible_project(db, boq.project_id, current_user)
+    project = _get_accessible_project(db, eoq.project_id, current_user)
 
     action = payload.action.lower().strip()
     if action == "submit":
-        boq.status = BOQStatus.IN_REVIEW
+        eoq.status = EOQStatus.IN_REVIEW
         project.status = ProjectStatus.IN_REVIEW
         title = "Review requested"
-        message = f"{boq.title} submitted for review"
+        message = f"{eoq.title} submitted for review"
     elif action == "approve":
-        boq.status = BOQStatus.APPROVED
+        eoq.status = EOQStatus.APPROVED
         project.status = ProjectStatus.APPROVED
         title = "Estimate Of Quantities approved"
-        message = f"{boq.title} approved"
+        message = f"{eoq.title} approved"
     elif action == "reject":
-        boq.status = BOQStatus.REJECTED
+        eoq.status = EOQStatus.REJECTED
         title = "Estimate Of Quantities rejected"
-        message = f"{boq.title} rejected" + (f": {payload.note}" if payload.note else "")
+        message = f"{eoq.title} rejected" + (f": {payload.note}" if payload.note else "")
     else:
         raise HTTPException(status_code=400, detail="action must be submit, approve, or reject")
 
     if payload.note:
-        boq.notes = ((boq.notes or "") + f"\n[{action}] {payload.note}").strip()
+        eoq.notes = ((eoq.notes or "") + f"\n[{action}] {payload.note}").strip()
 
     db.commit()
-    db.refresh(boq)
+    db.refresh(eoq)
     notify(
         db,
         user_id=current_user.id,
@@ -246,9 +250,9 @@ def update_boq_approval(
         db,
         user_id=current_user.id,
         project_id=project.id,
-        action=f"boq_{action}",
+        action=f"eoq_{action}",
         message=message,
-        entity_type="boq",
-        entity_id=boq.id,
+        entity_type="eoq",
+        entity_id=eoq.id,
     )
-    return BOQOut.model_validate(boq)
+    return EOQOut.model_validate(eoq)

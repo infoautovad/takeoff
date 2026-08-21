@@ -205,7 +205,7 @@ def enrich_cad_quantities_with_openai(
     pipes: list[Any] | None = None,
     texts: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Ask OpenAI to refine/normalize CAD quantity candidates for USA roadway BOQ."""
+    """Ask OpenAI to refine/normalize CAD quantity candidates for USA roadway EOQ."""
     if not openai_configured() or not quantities:
         return quantities
 
@@ -221,18 +221,21 @@ def enrich_cad_quantities_with_openai(
     }
     system = (
         "You are a USA municipal/utility quantity surveyor AI for water, sanitary, storm, and earthwork. "
-        "Refine CAD-derived quantities into bid-ready BOQ lines. "
+        "Refine CAD-derived quantities into bid-ready EOQ lines. "
         "Do NOT invent quantities without evidence in the input. Return JSON only."
     )
     user = f"""
-Refine these CAD quantities for a civil utility/roadway BOQ.
+Refine these CAD quantities for a civil utility/roadway EOQ.
 
 Hard rules:
 - KEEP pipe SIZE in descriptions whenever diameter/part size appears (e.g. "8-Inch Water Main", "12-Inch Storm Drain Pipe").
 - Do NOT collapse bends, valves, tees, hydrants, inlets, manholes into the pipe LF line — keep separate EA items.
 - Prefer network-specific names: Water / Sanitary / Storm.
 - Keep Earthwork Cut and Earthwork Fill (CY) if present.
-- Units: LF for pipe length, EA for fittings/structures, CY for cut/fill, SF for areas.
+- Units: LF for pipe length, EA for fittings/structures, CY for cut/fill, SF/SqFt for areas and Traffic Control signing.
+- TRAFFIC SIGNS: do not list individual STOP/YIELD/Speed Limit/MUTCD signs as separate EA lines.
+  Roll them into ONE item description "Traffic Control", unit SqFt (= sum of sign face areas).
+  Use plan/DWG sizes when present; otherwise MUTCD conventional-road sizes (in²÷144).
 - Preserve calculation_method and source_reference; confidence 0-100.
 - You may SPLIT a generic pipe length into sized lines ONLY when pipe/block/text evidence supports sizes; otherwise keep and lower confidence.
 - Do not drop fitting/structure counts just to shorten the list.
@@ -301,6 +304,9 @@ Return JSON:
             )
             if any(k in d for k in keep_keywords) and d not in cleaned_desc:
                 cleaned.append(q)
+        from app.services.traffic_control import consolidate_traffic_control_signs
+
+        cleaned, _ = consolidate_traffic_control_signs(cleaned, allow_online_refresh=False)
         return cleaned
     except Exception:
         return quantities

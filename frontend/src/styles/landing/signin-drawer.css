@@ -243,6 +243,35 @@
   font-weight:500;
 }
 
+.footer-end{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:10px;
+  justify-self:end;
+}
+.footer-admin{
+  appearance:none;
+  border:1px solid rgba(217,255,67,.28);
+  background:transparent;
+  color:#d9ff43;
+  font:10px monospace;
+  letter-spacing:.14em;
+  text-transform:uppercase;
+  padding:8px 14px;
+  cursor:pointer;
+  transition:background .15s ease,border-color .15s ease;
+}
+.footer-admin:hover{
+  background:rgba(217,255,67,.1);
+  border-color:rgba(217,255,67,.55);
+}
+.admin-drawer .signin-kicker{color:#d9ff43}
+.admin-tab{
+  background:#d9ff43 !important;
+  color:#07100e !important;
+}
+
 @media(max-width:720px){
   .signin-drawer{
     top:12px;
@@ -252,4 +281,5 @@
     width:auto;
   }
   .signin-tab-edge{display:none}
+  .footer-end{align-items:flex-start}
 }
