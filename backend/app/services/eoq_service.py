@@ -442,8 +442,10 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
     """Full AutoVAD EOQ columns with municipal-style section grouping.
 
     When utilities_detail is provided (from CAD DWG/DXF takeoff), adds sheets:
-    - Utility Stationing (station-to-station LF by utility)
-    - Utility Connections (bends/fittings with alignment station + side)
+    - Bid Quantity Summary (rolled up FROM detail)
+    - Linear Quantity Breakdown (CL station / LT-RT offset / length)
+    - Fittings Bends Connections
+    - Quantity QAQC
     """
     wb = Workbook()
     ws = wb.active
@@ -588,7 +590,9 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
     meta.append(
         [
             "Utility sheets",
-            "Utility Stationing + Utility Connections when DWG/DXF CAD takeoff includes underground utilities",
+            "Bid Quantity Summary is rolled up FROM Linear Quantity Breakdown + "
+            "Fittings Bends Connections. Stationing is always on the project CENTERLINE (CL); "
+            "LT/RT from alignment geometry. Quantity QAQC flags unassociated / overlapping / low-confidence items.",
         ]
     )
     meta.append(
@@ -617,11 +621,38 @@ def load_project_utilities_detail(db: Session, project_id: int) -> dict | None:
     models = list(db.scalars(select(CadModel).where(CadModel.project_id == project_id)).all())
     segments: list[dict] = []
     connections: list[dict] = []
+    bid_summary: list[dict] = []
+    qa_flags: list[dict] = []
     alignments: list[dict] = []
     for cad in models:
         raw = cad.utilities_detail_json
-        if not raw:
-            # Rebuild from stored entities when older CAD runs lack the column payload
+        detail = None
+        if raw:
+            try:
+                detail = json.loads(raw)
+            except json.JSONDecodeError:
+                detail = None
+
+        # Rebuild when missing, or when station/offset columns are blank (common APS/CL miss)
+        needs_rebuild = detail is None
+        if isinstance(detail, dict):
+            segs = detail.get("segments") or []
+            conns = detail.get("connections") or []
+            if segs and not any(str(s.get("from_station") or "").strip() for s in segs):
+                needs_rebuild = True
+            # Fittings often have Alignment filled but blank Station/Side/Offset — rebuild
+            if conns and any(
+                not str(c.get("station") or "").strip()
+                or not str(c.get("side") or "").strip()
+                or (
+                    c.get("offset") in (None, "")
+                    and c.get("offset_ft") is None
+                )
+                for c in conns
+            ):
+                needs_rebuild = True
+
+        if needs_rebuild:
             try:
                 entities = json.loads(cad.entities_json or "{}")
                 texts = json.loads(cad.texts_json or "[]")
@@ -635,12 +666,8 @@ def load_project_utilities_detail(db: Session, project_id: int) -> dict | None:
 
                 detail = build_utilities_detail(extraction)
             except Exception:
-                continue
-        else:
-            try:
-                detail = json.loads(raw)
-            except json.JSONDecodeError:
-                continue
+                if detail is None:
+                    continue
         if not isinstance(detail, dict):
             continue
         for s in detail.get("segments") or []:
@@ -651,21 +678,52 @@ def load_project_utilities_detail(db: Session, project_id: int) -> dict | None:
             row = dict(c)
             row.setdefault("cad_document_id", cad.document_id)
             connections.append(row)
+        for b in detail.get("bid_summary") or []:
+            bid_summary.append(dict(b))
+        for q in detail.get("qa_flags") or []:
+            qa_flags.append(dict(q))
         if detail.get("alignment"):
             alignments.append(dict(detail["alignment"]))
 
-    if not segments and not connections:
+    if not segments and not connections and not bid_summary:
         return None
+
+    # Re-rollup bid summary from merged detail so Summary always matches Detail
+    if segments or connections:
+        from app.services.cad.utility_stationing import build_bid_summary_from_detail
+
+        bid_summary = build_bid_summary_from_detail(segments, connections)
+
     return {
         "segments": segments,
         "connections": connections,
+        "bid_summary": bid_summary,
+        "qa_flags": qa_flags,
         "alignments": alignments,
         "summary": {
             "segment_count": len(segments),
             "connection_count": len(connections),
+            "bid_item_count": len(bid_summary),
+            "qa_flag_count": len(qa_flags),
             "total_lf": round(sum(float(s.get("quantity_lf") or 0) for s in segments), 2),
         },
     }
+
+
+def _style_header_row(
+    ws,
+    headers: list[str],
+    *,
+    header_fill: PatternFill,
+    header_font: Font,
+    border: Border,
+) -> None:
+    for col, h in enumerate(headers, start=1):
+        cell = ws.cell(1, col, h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.border = border
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
 
 
 def _append_utility_stationing_sheets(
@@ -676,116 +734,204 @@ def _append_utility_stationing_sheets(
     header_font: Font,
     border: Border,
 ) -> None:
+    """Civil takeoff sheets: Bid Summary ← Linear Detail + Fittings + QA/QC.
+
+    Stationing is always relative to the project CENTERLINE (CL). LT/RT from
+    alignment geometry. Bid Quantity Summary is rolled up FROM the detail sheets.
+    """
     detail = utilities_detail or {}
     segments = list(detail.get("segments") or [])
     connections = list(detail.get("connections") or [])
+    bid_summary = list(detail.get("bid_summary") or [])
+    qa_flags = list(detail.get("qa_flags") or [])
+    alignments = list(detail.get("alignments") or [])
+    # Always derive summary from detail so Bid Summary matches Linear + Fittings
+    if segments or connections:
+        from app.services.cad.utility_stationing import build_bid_summary_from_detail
 
-    # Always create the sheets so users know the feature exists for DWG takeoffs
-    seg_ws = wb.create_sheet("Utility Stationing")
-    seg_headers = [
-        "Utility",
-        "Size",
-        "Description",
-        "From Station",
-        "To Station",
-        "Direction (vs alignment)",
-        "Side of Alignment",
-        "Quantity (LF)",
-        "Layer",
-        "Alignment",
-        "Source",
-        "Calculation Method",
-    ]
-    for col, h in enumerate(seg_headers, start=1):
-        cell = seg_ws.cell(1, col, h)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.border = border
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+        bid_summary = build_bid_summary_from_detail(segments, connections)
+    cl_name = ""
+    if alignments:
+        cl_name = str(alignments[0].get("name") or "")
+    elif detail.get("alignment"):
+        cl_name = str((detail.get("alignment") or {}).get("name") or "")
 
-    if not segments:
-        seg_ws.cell(
+    # --- Sheet: Bid Quantity Summary (from detail) ---
+    sum_ws = wb.create_sheet("Bid Quantity Summary")
+    sum_headers = ["Bid Item", "Description", "Unit", "Quantity", "Detail Source", "Rollup Note"]
+    _style_header_row(sum_ws, sum_headers, header_fill=header_fill, header_font=header_font, border=border)
+    if cl_name:
+        sum_ws.cell(1, 7, f"Centerline: {cl_name}")
+    if not bid_summary:
+        sum_ws.cell(
             2,
             1,
-            "No underground utility station runs found yet. Process a DWG/DXF (CAD) with "
-            "water/sanitary/storm pipes or station callouts, then re-export Excel.",
+            "No CAD utility detail yet. Process DWG/DXF, then re-export — "
+            "summary quantities are generated from Linear + Fittings detail sheets.",
+        )
+    else:
+        for r_i, row in enumerate(bid_summary, start=2):
+            vals = [
+                row.get("bid_item") or "",
+                row.get("description") or "",
+                row.get("unit") or "",
+                float(row.get("quantity") or 0),
+                row.get("detail_source") or "",
+                row.get("rollup_note") or "",
+            ]
+            for c_i, val in enumerate(vals, start=1):
+                cell = sum_ws.cell(r_i, c_i, val)
+                cell.border = border
+                if c_i == 4:
+                    cell.number_format = "#,##0.00" if str(row.get("unit")).upper() == "LF" else "#,##0"
+                    cell.alignment = Alignment(horizontal="right")
+    for i, w in enumerate([14, 36, 8, 12, 28, 40], start=1):
+        sum_ws.column_dimensions[get_column_letter(i)].width = w
+    sum_ws.freeze_panes = "A2"
+
+    # --- Sheet: Linear Quantity Breakdown ---
+    lin_ws = wb.create_sheet("Linear Quantity Breakdown")
+    lin_headers = [
+        "Item",
+        "Size",
+        "From Sta.",
+        "To Sta.",
+        "Side",
+        "Offset",
+        "From Offset",
+        "To Offset",
+        "Length (LF)",
+        "Non-Parallel",
+        "Alignment (CL)",
+        "Layer",
+        "Source",
+    ]
+    _style_header_row(lin_ws, lin_headers, header_fill=header_fill, header_font=header_font, border=border)
+    if not segments:
+        lin_ws.cell(
+            2,
+            1,
+            "No linear utility runs found. Process CAD with pipes/polylines or station callouts. "
+            "Stationing is always on the project CENTERLINE.",
         )
     else:
         for r_i, row in enumerate(segments, start=2):
-            values = [
-                row.get("utility") or "",
+            nonpar = bool(row.get("nonparallel"))
+            vals = [
+                row.get("item") or row.get("utility") or "",
                 row.get("size") or "",
-                row.get("description") or "",
-                row.get("from_station") or row.get("from_station_raw") or "",
-                row.get("to_station") or row.get("to_station_raw") or "",
-                row.get("direction") or "",
-                row.get("side_of_alignment") or "",
-                float(row.get("quantity_lf") or 0),
+                row.get("from_station") or "",
+                row.get("to_station") or "",
+                row.get("side") or row.get("side_of_alignment") or "",
+                row.get("offset") or "",
+                row.get("from_offset") if nonpar else "",
+                row.get("to_offset") if nonpar else "",
+                float(row.get("length") or row.get("quantity_lf") or 0),
+                "Yes" if nonpar else "No",
+                row.get("alignment") or cl_name or "CL",
                 row.get("layer") or "",
-                row.get("alignment") or "",
                 row.get("source") or "",
-                row.get("method") or "",
             ]
-            for c_i, val in enumerate(values, start=1):
-                cell = seg_ws.cell(r_i, c_i, val)
+            for c_i, val in enumerate(vals, start=1):
+                cell = lin_ws.cell(r_i, c_i, val)
                 cell.border = border
-                if c_i == 8:
-                    cell.number_format = "0.00"
+                if c_i == 9:
+                    cell.number_format = "#,##0.00"
                     cell.alignment = Alignment(horizontal="right")
+    for i, w in enumerate([16, 8, 12, 12, 8, 12, 14, 14, 12, 12, 22, 16, 22], start=1):
+        lin_ws.column_dimensions[get_column_letter(i)].width = w
+    lin_ws.freeze_panes = "A2"
 
-    for i, w in enumerate([16, 10, 28, 14, 14, 22, 16, 14, 18, 22, 18, 40], start=1):
-        seg_ws.column_dimensions[get_column_letter(i)].width = w
-    seg_ws.freeze_panes = "A2"
-
-    conn_ws = wb.create_sheet("Utility Connections")
-    conn_headers = [
-        "Utility",
-        "Connection / Bend",
+    # --- Sheet: Fittings / Bends / Connections ---
+    fit_ws = wb.create_sheet("Fittings Bends Connections")
+    fit_headers = [
+        "Type",
         "Size",
         "Station",
-        "Direction from Alignment",
-        "Offset (ft)",
+        "Side",
+        "Offset",
+        "Angle/Type",
+        "Connects To",
+        "Utility",
         "Qty",
-        "Unit",
+        "Alignment (CL)",
         "Layer",
-        "Alignment",
         "Source",
-        "Calculation Method",
     ]
-    for col, h in enumerate(conn_headers, start=1):
-        cell = conn_ws.cell(1, col, h)
-        cell.fill = header_fill
-        cell.font = header_font
-        cell.border = border
-        cell.alignment = Alignment(horizontal="center", wrap_text=True)
-
+    _style_header_row(fit_ws, fit_headers, header_fill=header_fill, header_font=header_font, border=border)
     if not connections:
-        conn_ws.cell(
+        fit_ws.cell(
             2,
             1,
-            "No bends/fittings/connections located yet. Process CAD with fitting blocks "
-            "or pipe polylines that deflect, then re-export Excel.",
+            "No bends/fittings/connections located. Process CAD with fitting blocks or "
+            "pipe polylines that deflect at vertices.",
         )
     else:
         for r_i, row in enumerate(connections, start=2):
-            values = [
-                row.get("utility") or "",
-                row.get("connection_type") or "",
+            side_val = row.get("side") or row.get("direction_from_alignment") or ""
+            off_val = row.get("offset")
+            if off_val in (None, ""):
+                oft = row.get("offset_ft")
+                if oft is not None:
+                    try:
+                        from app.services.cad.utility_stationing import format_offset
+
+                        off_val = format_offset(float(oft), str(side_val) or None)
+                    except (TypeError, ValueError):
+                        off_val = oft
+            vals = [
+                row.get("type") or row.get("connection_type") or "",
                 row.get("size") or "",
                 row.get("station") or "",
-                row.get("direction_from_alignment") or "",
-                row.get("offset_ft") or "",
+                side_val,
+                "" if off_val is None else off_val,
+                row.get("angle") or row.get("angle_type") or "",
+                row.get("connects_to") or "",
+                row.get("utility") or "",
                 float(row.get("quantity") or 1),
-                row.get("unit") or "EA",
+                row.get("alignment") or cl_name or "CL",
                 row.get("layer") or "",
-                row.get("alignment") or "",
                 row.get("source") or "",
-                row.get("method") or "",
             ]
-            for c_i, val in enumerate(values, start=1):
-                cell = conn_ws.cell(r_i, c_i, val)
+            for c_i, val in enumerate(vals, start=1):
+                cell = fit_ws.cell(r_i, c_i, val)
                 cell.border = border
+    for i, w in enumerate([14, 8, 12, 8, 12, 12, 22, 16, 6, 22, 16, 20], start=1):
+        fit_ws.column_dimensions[get_column_letter(i)].width = w
+    fit_ws.freeze_panes = "A2"
 
-    for i, w in enumerate([16, 22, 10, 14, 22, 12, 8, 8, 18, 22, 18, 40], start=1):
-        conn_ws.column_dimensions[get_column_letter(i)].width = w
-    conn_ws.freeze_panes = "A2"
+    # --- Sheet: Quantity QA/QC ---
+    qa_ws = wb.create_sheet("Quantity QAQC")
+    qa_headers = ["Severity", "Issue", "Message", "Object", "Station", "Suggestion"]
+    _style_header_row(qa_ws, qa_headers, header_fill=header_fill, header_font=header_font, border=border)
+    if not qa_flags:
+        qa_ws.cell(
+            2,
+            1,
+            "No QA flags. Process CAD to populate stationing QA "
+            "(unidentified fittings, unassociated lines, overlaps, low confidence).",
+        )
+    else:
+        sev_fill = {
+            "high": PatternFill("solid", fgColor="FFC7CE"),
+            "medium": PatternFill("solid", fgColor="FFEB9C"),
+            "low": PatternFill("solid", fgColor="C6EFCE"),
+        }
+        for r_i, row in enumerate(qa_flags, start=2):
+            sev = str(row.get("severity") or "medium").lower()
+            vals = [
+                sev.upper(),
+                row.get("issue") or "",
+                row.get("message") or "",
+                row.get("object") or "",
+                row.get("station") or "",
+                row.get("suggestion") or "",
+            ]
+            for c_i, val in enumerate(vals, start=1):
+                cell = qa_ws.cell(r_i, c_i, val)
+                cell.border = border
+                if c_i == 1 and sev in sev_fill:
+                    cell.fill = sev_fill[sev]
+    for i, w in enumerate([10, 28, 48, 24, 18, 40], start=1):
+        qa_ws.column_dimensions[get_column_letter(i)].width = w
+    qa_ws.freeze_panes = "A2"

@@ -94,7 +94,10 @@ def test_eoq_group_sections():
     assert resolve_eoq_group(description="Sanitary Sewer Pipe 8 Inch") == "Sanitary Sewer"
     assert resolve_eoq_group(description="Aggregate Base Course") == "Surfacing"
     assert resolve_eoq_group(description="Silt Fence") == "Erosion Control / Restoration"
-    assert resolve_eoq_group(description="Mobilization") == "General / Traffic Control"
+    assert resolve_eoq_group(description="Temporary Mailbox") == "General / Traffic Control"
+    assert resolve_eoq_group(description="Type 3 Barricade, 8' Double Sided") == "General / Traffic Control"
+    assert resolve_eoq_group(description="Dam Embankment Fill") == "Dams & Reservoirs"
+    assert resolve_eoq_group(description="Brickwork") == "Building"
 
     rows = [
         {"description": "Mobilization", "category": None},

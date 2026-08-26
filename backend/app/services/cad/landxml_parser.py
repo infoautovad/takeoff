@@ -42,11 +42,31 @@ def parse_landxml(path: Path) -> dict[str, Any]:
 
         if name == "Alignment":
             length = elem.attrib.get("length") or elem.attrib.get("Length")
+            pts: list[list[float]] = []
+            for child in elem.iter():
+                cn = _local(child.tag)
+                if cn not in {"Start", "End", "PI", "Center"}:
+                    continue
+                raw = (child.text or "").strip()
+                if not raw:
+                    continue
+                try:
+                    nums = [float(x) for x in raw.replace(",", " ").split()]
+                except ValueError:
+                    continue
+                if len(nums) >= 2:
+                    pts.append([nums[0], nums[1]])
+            # Dedup consecutive identical vertices
+            uniq_pts: list[list[float]] = []
+            for p in pts:
+                if not uniq_pts or abs(p[0] - uniq_pts[-1][0]) > 1e-6 or abs(p[1] - uniq_pts[-1][1]) > 1e-6:
+                    uniq_pts.append(p)
             alignments.append(
                 {
                     "name": elem.attrib.get("name") or elem.attrib.get("Name"),
                     "length": float(length) if length else None,
                     "sta_start": elem.attrib.get("staStart") or elem.attrib.get("StaStart"),
+                    "points": uniq_pts,
                 }
             )
             layers.append({"name": f"Alignment:{alignments[-1]['name']}"})
@@ -91,12 +111,30 @@ def parse_landxml(path: Path) -> dict[str, Any]:
             )
 
         elif name in {"Struct", "Structure"}:
-            structures.append(
-                {
-                    "name": elem.attrib.get("name") or elem.attrib.get("Name"),
-                    "type": elem.attrib.get("desc") or elem.attrib.get("Type") or "Structure",
-                }
-            )
+            rec: dict[str, Any] = {
+                "name": elem.attrib.get("name") or elem.attrib.get("Name"),
+                "type": elem.attrib.get("desc") or elem.attrib.get("Type") or "Structure",
+                "station": elem.attrib.get("sta") or elem.attrib.get("station") or elem.attrib.get("Sta"),
+                "offset": elem.attrib.get("offset") or elem.attrib.get("Offset"),
+            }
+            for child in list(elem) + [elem]:
+                cn = _local(child.tag)
+                if cn not in {"Center", "Location", "Point", "CoordGeom"}:
+                    continue
+                raw = (child.text or "").strip()
+                if not raw:
+                    continue
+                try:
+                    nums = [float(x) for x in raw.replace(",", " ").split()]
+                except ValueError:
+                    continue
+                if len(nums) >= 2:
+                    rec["insert"] = [nums[0], nums[1]]
+                    rec["position"] = rec["insert"]
+                    rec["easting"] = nums[0]
+                    rec["northing"] = nums[1]
+                    break
+            structures.append(rec)
 
         elif name in {"Volume", "Volume2D", "SurfaceVolume"}:
             cut = _fattr(elem, "cut", "Cut", "cutVol", "earthworkCut")
@@ -155,6 +193,12 @@ def parse_landxml(path: Path) -> dict[str, Any]:
                 "layer": str(s.get("type") or "Structure"),
                 "type": s.get("type") or "Structure",
                 "description": s.get("type"),
+                "insert": s.get("insert"),
+                "position": s.get("position") or s.get("insert"),
+                "station": s.get("station"),
+                "offset": s.get("offset"),
+                "easting": s.get("easting"),
+                "northing": s.get("northing"),
             }
             for s in structures
         ],

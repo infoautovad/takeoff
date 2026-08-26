@@ -17,6 +17,7 @@ CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
     (["demolition", "remove pavement", "sawcut", "remove "], "02 41 13", "Removals", None),
     (["clearing", "grubbing"], "31 11 00", "Clearing & Grubbing", "acre"),
     # Division 31 – Earthwork
+    (["trench excavation", "trench backfill", "pipe bedding"], "31 23 16.13", "Grading", "cy"),
     (["earthwork cut", "excavation", "cut to fill", "roadway excavation", "unclassified"], "31 23 16", "Grading", "cy"),
     (["earthwork fill", "embankment", "borrow", "fill"], "31 23 23", "Grading", "cy"),
     (["subgrade", "proof roll", "topsoil"], "31 22 13", "Grading", "sy"),
@@ -52,7 +53,16 @@ CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
     (["concrete"], "03 30 00", "Structures", "cy"),
     (["rebar", "reinforcement", "steel reinforcement"], "03 20 00", "Structures", "lb"),
     (["formwork"], "03 11 00", "Structures", "sf"),
-    # Geometry / reference
+    (["dam embankment", "earthfill dam", "cofferdam"], "31 24 13", "Dams & Reservoirs", "cy"),
+    (["spillway", "stilling basin"], "03 30 00", "Dams & Reservoirs", "cy"),
+    (["reservoir lining", "pond lining", "geomembrane"], "33 56 13", "Dams & Reservoirs", "sf"),
+    (["impoundment", "storage tank", "reservoir capacity"], "33 16 00", "Dams & Reservoirs", "mgal"),
+    (["brickwork", "masonry", "blockwork"], "04 20 00", "Building", "cy"),
+    (["plaster"], "09 24 00", "Building", "sf"),
+    (["flooring", "floor tile"], "09 30 00", "Building", "sf"),
+    (["roofing"], "07 50 00", "Building", "sf"),
+    (["doors", "hollow metal door", "wood door"], "08 11 00", "Building", "ea"),
+    (["windows", "window "], "08 50 00", "Building", "ea"),
     (["road width", "carriageway", "alignment", "centerline"], "01 71 23", "Miscellaneous", "lf"),
 ]
 
@@ -120,6 +130,9 @@ UNIT_ALIASES = {
     "pound": "lb",
     "pounds": "lb",
     "mgal": "mgal",
+    "ac-ft": "ac-ft",
+    "acre-ft": "ac-ft",
+    "acre ft": "ac-ft",
     "kg": "kg",
     "acre": "acre",
     "ac": "acre",

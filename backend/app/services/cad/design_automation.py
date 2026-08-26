@@ -128,23 +128,43 @@ def _nickname(token: str | None = None) -> str:
         return nick
 
 
+def _list_engines(token: str) -> list[str]:
+    with httpx.Client(timeout=60.0) as client:
+        resp = client.get(f"{DA_BASE}/engines", headers=_headers(token))
+        if resp.status_code >= 400:
+            return []
+        data = resp.json() or {}
+        return [e for e in (data.get("data") or []) if isinstance(e, str)]
+
+
 def _pick_engine(token: str) -> str:
+    """AutoCAD engine for the DWG→DXF script activity."""
     settings = get_settings()
     configured = (settings.design_automation_engine or "").strip()
     if configured and configured.lower() != "auto":
         return configured
-    with httpx.Client(timeout=60.0) as client:
-        resp = client.get(f"{DA_BASE}/engines", headers=_headers(token))
-        if resp.status_code >= 400:
-            return "Autodesk.AutoCAD+25_0"
-        data = resp.json() or {}
-        engines = data.get("data") or []
-        # Prefer newest AutoCAD engine (Civil 3D DA rides on AutoCAD engines)
-        autocad = [e for e in engines if isinstance(e, str) and "AutoCAD+" in e]
-        if not autocad:
-            return "Autodesk.AutoCAD+25_0"
-        autocad.sort(reverse=True)
-        return autocad[0]
+    engines = _list_engines(token)
+    autocad = [e for e in engines if "AutoCAD+" in e and "Civil" not in e]
+    if not autocad:
+        autocad = [e for e in engines if "AutoCAD+" in e]
+    if not autocad:
+        return "Autodesk.AutoCAD+25_0"
+    autocad.sort(reverse=True)
+    return autocad[0]
+
+
+def _pick_civil_engine(token: str) -> str:
+    """Prefer Civil 3D so Alignment.StationOffset and pipe networks are live."""
+    settings = get_settings()
+    configured = (settings.design_automation_engine or "").strip()
+    if configured and configured.lower() != "auto" and "Civil" in configured:
+        return configured
+    engines = _list_engines(token)
+    civil = [e for e in engines if "Civil3D+" in e or "Civil 3D" in e]
+    if civil:
+        civil.sort(reverse=True)
+        return civil[0]
+    return _pick_engine(token)
 
 
 def _qualified(nickname: str, local_id: str, alias: str = DEFAULT_ALIAS) -> str:
@@ -233,7 +253,7 @@ def ensure_appbundle_and_activity(token: str | None = None) -> str | None:
 
     tok = token or get_da_token()
     nick = _nickname(tok)
-    engine = _pick_engine(tok)
+    engine = _pick_civil_engine(tok)
     qualified_bundle = _qualified(nick, APPBUNDLE_ID)
     qualified_activity = _qualified(nick, ACTIVITY_PLUGIN_ID)
 

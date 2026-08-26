@@ -12,6 +12,11 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.services.cad.civil_location import (
+    location_from_property_bag,
+    point_from_property_bag,
+    useful_property_attr,
+)
 
 APS_BASE = "https://developer.api.autodesk.com"
 
@@ -275,6 +280,7 @@ def map_aps_properties_to_extraction(properties_payload: dict[str, Any], *, file
     hatches: list[dict[str, Any]] = []
     circles: list[dict[str, Any]] = []
     pipes: list[dict[str, Any]] = []
+    alignments: list[dict[str, Any]] = []
     surfaces: list[dict[str, Any]] = []
     volumes: list[dict[str, Any]] = []
 
@@ -326,19 +332,44 @@ def map_aps_properties_to_extraction(properties_payload: dict[str, Any], *, file
                 volumes.append({"type": "fill", "quantity": fill_vol, "name": name})
 
         if "pipe" in lower_entity or "pipe" in blob:
-            if length:
-                pipes.append(
-                    {
-                        "name": name,
-                        "layer": layer,
-                        "length": length,
-                        "radius": radius,
-                        "diameter": diameter,
-                        "part_size": part_size,
-                        "network": network,
-                        "description": part_size or name,
-                    }
-                )
+            loc_meta = _station_side_offset_from_props(flat)
+            pipe_row = {
+                "name": name,
+                "layer": layer,
+                "length": length,
+                "radius": radius,
+                "diameter": diameter,
+                "part_size": part_size,
+                "network": network,
+                "description": part_size or name,
+                "sta_start": flat.get("Start Station") or flat.get("rawStartStation") or loc_meta.get("station"),
+                "sta_end": flat.get("End Station") or flat.get("rawEndStation"),
+                "offset": loc_meta.get("offset"),
+                "offset_ft": loc_meta.get("offset"),
+                "side": loc_meta.get("side"),
+            }
+            pt = _point_from_cad_props(flat)
+            if pt:
+                pipe_row["start"] = pt
+            if length or pipe_row.get("sta_start") or pipe_row.get("sta_end"):
+                pipes.append(pipe_row)
+            continue
+
+        if "alignment" in lower_entity or "alignment" in blob.lower() or "p_cl" in blob:
+            loc_meta = _station_side_offset_from_props(flat)
+            alignments.append(
+                {
+                    "name": name or layer,
+                    "layer": layer,
+                    "length": length,
+                    "sta_start": flat.get("Start Station") or flat.get("Starting Station") or loc_meta.get("station"),
+                    "points": (
+                        [_point_from_cad_props(flat)]
+                        if _point_from_cad_props(flat)
+                        else []
+                    ),
+                }
+            )
             continue
 
         if any(k in blob for k in ("structure", "manhole", "inlet", "catch", "valve", "bend", "tee", "hydrant")):
@@ -349,12 +380,27 @@ def map_aps_properties_to_extraction(properties_payload: dict[str, Any], *, file
                     "type": entity,
                     "description": part_size or name,
                     "size": diameter,
+                    **_civil_location_fields(flat),
                 }
             )
         elif "block" in lower_entity or "insert" in lower_entity or "ref" in lower_entity:
-            blocks.append({"name": name, "layer": layer, "type": entity, "description": part_size})
+            blocks.append(
+                {
+                    "name": name,
+                    "layer": layer,
+                    "type": entity,
+                    "description": part_size,
+                    **_civil_location_fields(flat),
+                }
+            )
         elif "text" in lower_entity or "mtext" in lower_entity:
-            texts.append({"layer": layer, "text": name})
+            texts.append(
+                {
+                    "layer": layer,
+                    "text": str(flat.get("Contents") or flat.get("textContent") or name),
+                    "insert": _point_from_cad_props(flat),
+                }
+            )
         elif "dimension" in lower_entity or "dim" in lower_entity:
             dimensions.append({"layer": layer, "measurement": length, "text": name})
         elif "hatch" in lower_entity:
@@ -377,7 +423,14 @@ def map_aps_properties_to_extraction(properties_payload: dict[str, Any], *, file
         elif area is not None:
             hatches.append({"layer": layer, "area": area})
         else:
-            blocks.append({"name": name, "layer": layer, "type": entity})
+            blocks.append(
+                {
+                    "name": name,
+                    "layer": layer,
+                    "type": entity,
+                    **_civil_location_fields(flat),
+                }
+            )
 
     stats = {
         "aps_objects": len(collection),
@@ -407,6 +460,7 @@ def map_aps_properties_to_extraction(properties_payload: dict[str, Any], *, file
         "hatches": hatches[:2000],
         "circles": circles[:2000],
         "pipes": pipes[:5000],
+        "alignments": alignments[:2000],
         "surfaces": surfaces[:500],
         "volumes": volumes[:500],
         "stats": stats,
@@ -483,41 +537,8 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
     ).fetchall()
     useful_ids: set[int] = set()
     for attr_id, name, category, display_name in attrs:
-        label = f"{name or ''} {category or ''} {display_name or ''}".lower()
-        if any(
-            key in label
-            for key in (
-                "layer",
-                "length",
-                "area",
-                "type",
-                "name",
-                "handle",
-                "radius",
-                "perimeter",
-                "measurement",
-                "contents",
-                "textcontent",
-                "pipe",
-                "structure",
-                "alignment",
-                "parcel",
-                "network",
-                "part size",
-                "diameter",
-                "inner",
-                "outer",
-                "material",
-                "cut",
-                "fill",
-                "volume",
-                "surface",
-                "slope",
-                "description",
-                "family",
-                "style",
-            )
-        ):
+        label = f"{name or ''} {category or ''} {display_name or ''}"
+        if useful_property_attr(label):
             useful_ids.add(int(attr_id))
 
     if not useful_ids:
@@ -527,7 +548,7 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
     placeholders = ",".join("?" for _ in useful_ids)
     rows = cur.execute(
         f"""
-        SELECT e.entity_id, a.name, a.category, v.value
+        SELECT e.entity_id, a.name, a.category, a.display_name, v.value
         FROM _objects_eav e
         JOIN _objects_attr a ON a.id = e.attribute_id
         JOIN _objects_val v ON v.id = e.value_id
@@ -538,9 +559,11 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
     con.close()
 
     by_entity: dict[int, dict[str, Any]] = {}
-    for entity_id, name, category, value in rows:
+    for entity_id, name, category, display_name, value in rows:
         props = by_entity.setdefault(int(entity_id), {})
         key = str(name or "").strip()
+        if not key:
+            key = str(display_name or "").strip()
         if not key:
             continue
         # Prefer Geometry-category values when duplicates exist
@@ -548,6 +571,9 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
         if key in props and cat and "geometry" not in cat.lower() and "general" not in cat.lower():
             continue
         props[key] = value
+        disp = str(display_name or "").strip()
+        if disp and disp not in props:
+            props[disp] = value
 
     for props in by_entity.values():
         entity = str(props.get("type") or props.get("General Object Type") or props.get("Name ") or "")
@@ -640,6 +666,58 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
             or "aeccdbpipe" in lower_entity
             or "pipe network" in blob
         ):
+            loc_meta = _station_side_offset_from_props(props)
+            sta_start = (
+                props.get("Start Station")
+                or props.get("RefStart")
+                or props.get("Start Sta")
+                or props.get("Pipe Start Station")
+                or props.get("rawStartStation")
+                or props.get("StartStation")
+                or props.get("Station at Start")
+            )
+            sta_end = (
+                props.get("End Station")
+                or props.get("RefEnd")
+                or props.get("End Sta")
+                or props.get("Pipe End Station")
+                or props.get("rawEndStation")
+                or props.get("EndStation")
+                or props.get("Station at End")
+            )
+            start_x = _first_float(
+                props, ("Start Easting", "Start X", "Easting at Start", "Start Point X", "Position X")
+            )
+            start_y = _first_float(
+                props, ("Start Northing", "Start Y", "Northing at Start", "Start Point Y", "Position Y")
+            )
+            end_x = _first_float(
+                props, ("End Easting", "End X", "Easting at End", "End Point X")
+            )
+            end_y = _first_float(
+                props, ("End Northing", "End Y", "Northing at End", "End Point Y")
+            )
+            offset = loc_meta.get("offset")
+            if offset is None:
+                offset = _first_float(
+                    props,
+                    ("Offset", "2D Offset", "Horizontal Offset", "Offset From Alignment", "Start Offset", "rawOffset"),
+                )
+            side = loc_meta.get("side") or props.get("Side") or props.get("Offset Side") or props.get("Direction")
+            start_struct = (
+                props.get("Start Structure")
+                or props.get("Start Structure Name")
+                or props.get("Structure Start")
+                or props.get("Connected Structure Start")
+                or props.get("StartStructure")
+            )
+            end_struct = (
+                props.get("End Structure")
+                or props.get("End Structure Name")
+                or props.get("Structure End")
+                or props.get("Connected Structure End")
+                or props.get("EndStructure")
+            )
             pipe_row = {
                 "name": name,
                 "layer": layer,
@@ -650,8 +728,23 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
                 "network": network,
                 "material": material,
                 "description": part_size or name,
+                "sta_start": sta_start,
+                "sta_end": sta_end,
+                "start_station": sta_start,
+                "end_station": sta_end,
+                "start_structure": start_struct,
+                "end_structure": end_struct,
+                "offset": offset,
+                "offset_ft": offset,
+                "side": side,
             }
-            if length:
+            if start_x is not None and start_y is not None:
+                pipe_row["start"] = [start_x, start_y]
+            if end_x is not None and end_y is not None:
+                pipe_row["end"] = [end_x, end_y]
+            if pipe_row.get("start") and pipe_row.get("end"):
+                pipe_row["points"] = [pipe_row["start"], pipe_row["end"]]
+            if length or sta_start or sta_end or pipe_row.get("points"):
                 pipes.append(pipe_row)
             else:
                 blocks.append(
@@ -661,6 +754,9 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
                         "type": entity or "Pipe",
                         "size": diameter,
                         "description": part_size,
+                        "insert": _point_from_cad_props(props),
+                        "position": _point_from_cad_props(props),
+                        **{k: v for k, v in _station_side_offset_from_props(props).items() if v is not None},
                     }
                 )
             continue
@@ -680,6 +776,7 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
                     "type": entity or "Structure",
                     "description": part_size or name,
                     "size": diameter,
+                    **_civil_location_fields(props),
                 }
             )
             continue
@@ -693,13 +790,35 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
                     "type": entity or "Fitting",
                     "description": part_size or name,
                     "size": diameter,
+                    **_civil_location_fields(props),
                 }
             )
             continue
 
-        if "alignment" in lower_entity or "alignment" in lower_name:
-            if length:
-                alignments.append({"name": name, "layer": layer, "length": length})
+        if "alignment" in lower_entity or "alignment" in lower_name or re.search(
+            r"(?:^|[^a-z0-9])cl(?:[^a-z0-9]|$)", lower_name.replace("_", " ")
+        ) or "p_cl" in lower_name or "p_cl" in lower_layer or "_cl" in lower_layer:
+            sta_start = (
+                props.get("Start Station")
+                or props.get("StaStart")
+                or props.get("Starting Station")
+                or props.get("rawStation")
+            )
+            align_row: dict[str, Any] = {
+                "name": name or layer,
+                "layer": layer,
+                "length": length,
+                "sta_start": sta_start,
+            }
+            # Some Civil derivatives expose alignment sample points / start-end
+            sx = _first_float(props, ("Start Easting", "Start X", "Easting"))
+            sy = _first_float(props, ("Start Northing", "Start Y", "Northing"))
+            ex = _first_float(props, ("End Easting", "End X"))
+            ey = _first_float(props, ("End Northing", "End Y"))
+            if sx is not None and sy is not None and ex is not None and ey is not None:
+                align_row["points"] = [[sx, sy], [ex, ey]]
+            if length or align_row.get("points") or "cl" in lower_name.replace("_", " ") or "cl" in lower_layer.replace("_", " "):
+                alignments.append(align_row)
             continue
 
         if "surface" in lower_entity or "tin" in lower_entity or "tin surface" in blob:
@@ -715,7 +834,13 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
             continue
 
         if "text" in lower_entity or "mtext" in lower_entity:
-            texts.append({"layer": layer, "text": str(text_value or name)})
+            texts.append(
+                {
+                    "layer": layer,
+                    "text": str(text_value or name),
+                    "insert": _point_from_cad_props(props),
+                }
+            )
             continue
 
         if "dimension" in lower_entity or "dim" in lower_entity:
@@ -762,7 +887,14 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
                 continue
             if any(skip in lower_layer for skip in ("vport", "defpoints", "viewport")):
                 continue
-            blocks.append({"name": name, "layer": layer, "type": entity or "Block"})
+            blocks.append(
+                {
+                    "name": name,
+                    "layer": layer,
+                    "type": entity or "Block",
+                    **_civil_location_fields(props),
+                }
+            )
             continue
 
         # Geometry-bearing unknowns
@@ -773,7 +905,14 @@ def parse_properties_db(db_path: Path, *, filename: str) -> dict[str, Any]:
         elif area:
             hatches.append({"layer": layer, "area": area})
         elif entity and not entity.startswith("AcDb") and "table" not in lower_entity:
-            blocks.append({"name": name, "layer": layer, "type": entity})
+            blocks.append(
+                {
+                    "name": name,
+                    "layer": layer,
+                    "type": entity,
+                    **_civil_location_fields(props),
+                }
+            )
 
     stats = {
         "aps_objects": len(by_entity),
@@ -890,6 +1029,33 @@ def process_dwg_with_aps(path: Path) -> dict[str, Any]:
         "sheet_names": [m.get("name") for m in metadata],
     }
     return extraction
+
+
+def _point_from_cad_props(props: dict[str, Any]) -> list[float] | None:
+    """Best-effort XY from Civil/APS property bags for structures & fittings."""
+    return point_from_property_bag(props)
+
+
+def _station_side_offset_from_props(props: dict[str, Any]) -> dict[str, Any]:
+    loc = location_from_property_bag(props)
+    return {
+        "station": loc.get("station") or loc.get("raw_station"),
+        "side": loc.get("side"),
+        "offset": loc.get("offset_ft"),
+    }
+
+
+def _civil_location_fields(props: dict[str, Any]) -> dict[str, Any]:
+    loc = location_from_property_bag(props)
+    pt = loc.get("insert")
+    return {
+        "insert": pt,
+        "position": pt,
+        "station": loc.get("station") or loc.get("raw_station"),
+        "side": loc.get("side"),
+        "offset": loc.get("offset_ft"),
+        "offset_ft": loc.get("offset_ft"),
+    }
 
 
 def _first_float(props: dict[str, Any], keys: tuple[str, ...]) -> float | None:

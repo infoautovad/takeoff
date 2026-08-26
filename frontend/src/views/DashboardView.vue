@@ -112,7 +112,7 @@ const cards = computed(() => [
 const quickActions = [
   {
     title: 'New project',
-    desc: 'Start a USA civil takeoff workspace',
+    desc: 'Start a civil estimator workspace (road, utility, dam, building)',
     icon: 'mdi-plus-box-outline',
     to: '/projects',
     primary: true,

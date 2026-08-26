@@ -245,10 +245,20 @@ def classify_fitting(name: str, layer: str = "") -> tuple[str, str, str] | None:
         (["sleeve", "casing"], "Casing / Sleeve", "Utilities"),
         (["meter"], "Water Meter", "Utilities"),
         (["blowoff", "blow-off", "air release", "arv"], "Blowoff / Air Release", "Utilities"),
+        (["a-door", "doors", "door-"], "Doors", "Building"),
+        (["window", "glaz"], "Windows", "Building"),
+        (["column", "pillar"], "Columns", "Building"),
+        (["pile"], "Piles", "Structures"),
+        (["luminaire", "lightpole", "light pole", "streetlight", "street light"], "Light Poles", "Lighting & Electrical"),
+        (["tree", "shrub"], "Trees / Shrubs", "Landscaping & Irrigation"),
+        (["bollard"], "Bollards", "Miscellaneous"),
     ]
     for keys, desc, cat in structure_map:
         if any(k in text for k in keys):
             return desc, cat, "EA"
+
+    if re.search(r"(?<![a-z])doors?(?![a-z])", text) and "outdoor" not in text:
+        return "Doors", "Building", "EA"
 
     # Traffic signs / MUTCD inserts → counted, later rolled into Traffic Control SqFt
     sign_keys = (
@@ -401,9 +411,21 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
         if not value or value <= 0 or _is_noise_layer(name):
             return
         low = name.lower()
-        if any(k in low for k in ("pave", "asphalt", "sidewalk", "gsb", "wmm", "row", "easement")):
+        if any(k in low for k in ("pave", "asphalt", "hma", "parking", "gsb", "wmm")):
             desc = f"Area - {name}"
-            cat = "Pavement" if any(k in low for k in ("pave", "asphalt", "gsb", "wmm")) else "Geometry"
+            cat = "Pavement"
+        elif any(k in low for k in ("sidewalk", "walkway", "footpath")):
+            desc = f"Area - {name}"
+            cat = "Curb, Gutter & Sidewalk"
+        elif any(k in low for k in ("floor", "slab", "roof", "a-flor", "a-area")):
+            desc = f"Area - {name}"
+            cat = "Building"
+        elif any(k in low for k in ("lining", "liner", "reservoir", "pond", "riprap")):
+            desc = f"Area - {name}"
+            cat = "Dams & Reservoirs"
+        elif any(k in low for k in ("row", "easement")):
+            desc = f"Area - {name}"
+            cat = "Geometry"
         else:
             return  # skip random closed polys as EOQ area noise
         key = f"{desc}|SF|{name}"
@@ -669,10 +691,15 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
     items = _dedupe_prefer_sized(items)
     items = _collapse_count_duplicates(items)
 
+    from app.services.civil_estimator import expand_cad_takeoff
+
+    items = expand_cad_takeoff(extraction, items)
+    items = [enrich_quantity_item(row) for row in items]
+
     from app.services.traffic_control import consolidate_traffic_control_signs
 
     items, _tc_meta = consolidate_traffic_control_signs(items, allow_online_refresh=False)
-    return items[:300]
+    return items[:500]
 
 
 def _dedupe_prefer_sized(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

@@ -986,7 +986,8 @@ const cadDocuments = computed(() =>
                 <h2 class="brand-font text-h6 mb-1">CAD & Civil 3D Intelligence Engine</h2>
                 <p class="muted text-body-2 mb-0">
                   DWG runs through Autodesk <strong>Design Automation</strong> (cloud AutoCAD) when enabled,
-                  with Model Derivative as fallback. DXF / LandXML parse locally → quantity takeoff → Estimate Of Quantities.
+                  with Model Derivative as fallback. DXF / LandXML parse locally → civil estimator takeoff
+                  (pipes, trench CY, curb, pavement, building/dam layers) → Estimate Of Quantities.
                 </p>
               </div>
               <div class="d-flex flex-wrap ga-2">
@@ -1123,9 +1124,14 @@ const cadDocuments = computed(() =>
               <div>
                 <h2 class="brand-font text-h6 mb-1">Estimate of Quantities</h2>
                 <p class="muted text-body-2 mb-0">
-                  Items are grouped like a municipal bid schedule (Removals, Grading, Watermain, Sanitary Sewer, …).
-                  Excel includes the same layout plus <strong>Utility Stationing</strong> and
-                  <strong>Utility Connections</strong> sheets from DWG/DXF CAD takeoff (station-to-station LF, bends/fittings).
+                  Items are grouped like a civil bid schedule (Removals, Grading, Surfacing, Watermain,
+                  Dams & Reservoirs, Building, …). When a design has no bid table, AutoVAD estimates
+                  from typical sections, pipe geometry, and drawing counts (roads, utilities, dams, reservoirs, houses).
+                  Excel includes Estimate Of Quantities plus civil sheets:
+                  <strong>Bid Quantity Summary</strong> (from detail),
+                  <strong>Linear Quantity Breakdown</strong> (CL station / LT–RT offset),
+                  <strong>Fittings Bends Connections</strong>, and
+                  <strong>Quantity QAQC</strong>.
                 </p>
               </div>
               <div class="d-flex flex-wrap ga-2">

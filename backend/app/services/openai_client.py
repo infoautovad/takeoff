@@ -194,6 +194,40 @@ def _ask_openai(
     )
 
 
+def apply_cad_label_enrichment(
+    original: list[dict[str, Any]],
+    refined: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """Overlay AI labels only. Never add, drop, split, or change quantity/unit."""
+    if not original:
+        return []
+    refined = list(refined or [])
+    out: list[dict[str, Any]] = []
+    for idx, src in enumerate(original):
+        row = dict(src)
+        if idx < len(refined) and isinstance(refined[idx], dict):
+            cand = refined[idx]
+            desc = str(cand.get("description") or "").strip()
+            if desc:
+                row["description"] = desc
+            cat = str(cand.get("category") or "").strip()
+            if cat:
+                row["category"] = cat
+            code = cand.get("item_code") or cand.get("csi_code")
+            if code:
+                row["item_code"] = str(code).strip()
+            try:
+                conf = float(cand.get("confidence") or 0)
+                row["confidence"] = max(float(row.get("confidence") or 0), min(conf, 95.0))
+            except (TypeError, ValueError):
+                pass
+        out.append(row)
+    from app.services.traffic_control import consolidate_traffic_control_signs
+
+    out, _ = consolidate_traffic_control_signs(out, allow_online_refresh=False)
+    return out
+
+
 def enrich_cad_quantities_with_openai(
     *,
     filename: str,
@@ -205,7 +239,7 @@ def enrich_cad_quantities_with_openai(
     pipes: list[Any] | None = None,
     texts: list[Any] | None = None,
 ) -> list[dict[str, Any]]:
-    """Ask OpenAI to refine/normalize CAD quantity candidates for USA roadway EOQ."""
+    """Ask OpenAI to rename/classify CAD quantity candidates. Item set and quantities stay fixed."""
     if not openai_configured() or not quantities:
         return quantities
 
@@ -217,28 +251,25 @@ def enrich_cad_quantities_with_openai(
         "blocks": blocks[:150],
         "pipes": (pipes or [])[:120],
         "texts": (texts or [])[:80],
-        "quantities": quantities[:160],
+        "quantities": quantities[:200],
     }
+    n = min(len(quantities), 200)
     system = (
-        "You are a USA municipal/utility quantity surveyor AI for water, sanitary, storm, and earthwork. "
-        "Refine CAD-derived quantities into bid-ready EOQ lines. "
-        "Do NOT invent quantities without evidence in the input. Return JSON only."
+        "You are a USA civil estimator labeling CAD takeoff lines. "
+        "You may ONLY improve description, category, and item_code. "
+        "Return exactly one output item per input item, same order. JSON only."
     )
     user = f"""
-Refine these CAD quantities for a civil utility/roadway EOQ.
+Relabel these CAD quantities for a civil EOQ (roads, utilities, dams, reservoirs, buildings).
 
 Hard rules:
-- KEEP pipe SIZE in descriptions whenever diameter/part size appears (e.g. "8-Inch Water Main", "12-Inch Storm Drain Pipe").
-- Do NOT collapse bends, valves, tees, hydrants, inlets, manholes into the pipe LF line — keep separate EA items.
+- Return EXACTLY {n} items in the SAME order as INPUT quantities.
+- Do NOT add, drop, merge, or split lines.
+- Do NOT change quantity or unit.
+- KEEP pipe SIZE in descriptions (e.g. "8-Inch Water Main").
 - Prefer network-specific names: Water / Sanitary / Storm.
-- Keep Earthwork Cut and Earthwork Fill (CY) if present.
-- Units: LF for pipe length, EA for fittings/structures, CY for cut/fill, SF/SqFt for areas and Traffic Control signing.
-- TRAFFIC SIGNS: do not list individual STOP/YIELD/Speed Limit/MUTCD signs as separate EA lines.
-  Roll them into ONE item description "Traffic Control", unit SqFt (= sum of sign face areas).
-  Use plan/DWG sizes when present; otherwise MUTCD conventional-road sizes (in²÷144).
-- Preserve calculation_method and source_reference; confidence 0-100.
-- You may SPLIT a generic pipe length into sized lines ONLY when pipe/block/text evidence supports sizes; otherwise keep and lower confidence.
-- Do not drop fitting/structure counts just to shorten the list.
+- TRAFFIC SIGNS: description "Traffic Control" is already rolled up — do not split it.
+- Preserve calculation_method and source_reference.
 
 INPUT_JSON:
 {json.dumps(payload, ensure_ascii=True)[:50000]}
@@ -248,15 +279,9 @@ Return JSON:
   "items": [
     {{
       "description": "8-Inch Water Main",
-      "category": "Utilities",
-      "unit": "LF",
-      "quantity": 680.0,
-      "layer": "WATER",
-      "entity_type": "PIPE",
-      "calculation_method": "...",
-      "source_reference": "{filename}",
-      "confidence": 92,
-      "item_code": null
+      "category": "Watermain",
+      "item_code": null,
+      "confidence": 92
     }}
   ]
 }}
@@ -264,50 +289,7 @@ Return JSON:
     try:
         data = ask_openai_json(system, user)
         items = data.get("items") or []
-        cleaned: list[dict[str, Any]] = []
-        for item in items:
-            if not item.get("description") or item.get("quantity") is None:
-                continue
-            cleaned.append(
-                {
-                    "item_code": item.get("item_code"),
-                    "description": str(item.get("description")).strip(),
-                    "category": item.get("category") or "General",
-                    "unit": str(item.get("unit") or "UNIT").upper(),
-                    "quantity": float(item.get("quantity") or 0),
-                    "layer": item.get("layer"),
-                    "entity_type": item.get("entity_type"),
-                    "calculation_method": item.get("calculation_method") or "OpenAI CAD enrichment",
-                    "source_reference": item.get("source_reference") or filename,
-                    "confidence": float(item.get("confidence") or 85),
-                }
-            )
-        # Merge: keep rule-engine fittings/cut-fill if model dropped them
-        if not cleaned:
-            return quantities
-        cleaned_desc = {str(i.get("description") or "").lower() for i in cleaned}
-        for q in quantities:
-            d = str(q.get("description") or "").lower()
-            unit = str(q.get("unit") or "").upper()
-            keep_keywords = (
-                "valve",
-                "bend",
-                "elbow",
-                "tee",
-                "hydrant",
-                "inlet",
-                "manhole",
-                "catch",
-                "earthwork cut",
-                "earthwork fill",
-                "reducer",
-            )
-            if any(k in d for k in keep_keywords) and d not in cleaned_desc:
-                cleaned.append(q)
-        from app.services.traffic_control import consolidate_traffic_control_signs
-
-        cleaned, _ = consolidate_traffic_control_signs(cleaned, allow_online_refresh=False)
-        return cleaned
+        return apply_cad_label_enrichment(quantities, items)
     except Exception:
         return quantities
 

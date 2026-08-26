@@ -16,18 +16,29 @@ from app.services.extractors import ExtractedContent
 
 CIVIL_PATTERNS: list[tuple[str, str, str, str]] = [
     # description_key, category, unit_hint, regex
-    ("GSB", "Pavement", "m3", r"\bGSB\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?)"),
-    ("WMM", "Pavement", "m3", r"\bWMM\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?)"),
-    ("DBM", "Pavement", "m3", r"\bDBM\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?)"),
-    ("Bituminous Concrete", "Pavement", "m3", r"\b(?:BC|Bituminous\s*Concrete)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|t|ton|tons?)"),
-    ("Asphalt", "Pavement", "m3", r"\bAsphalt\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|t|ton|tons?)"),
-    ("Earthwork Cut", "Earthwork", "m3", r"\b(?:Cut|Excavation)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³)"),
-    ("Earthwork Fill", "Earthwork", "m3", r"\b(?:Fill|Embankment)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³)"),
-    ("Concrete", "Structures", "m3", r"\bConcrete\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³)"),
-    ("Kerb", "Roadside", "m", r"\bKerb(?:ing)?\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m|lm|lin(?:ear)?\s*m)"),
+    ("GSB", "Pavement", "m3", r"\bGSB\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?|cy|cu\.?\s*yd)"),
+    ("WMM", "Pavement", "m3", r"\bWMM\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?|cy|cu\.?\s*yd)"),
+    ("DBM", "Pavement", "m3", r"\bDBM\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cu\.?\s*m|cubic\s*meters?|cy|cu\.?\s*yd)"),
+    ("Bituminous Concrete", "Pavement", "m3", r"\b(?:BC|Bituminous\s*Concrete)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|t|ton|tons?|cy)"),
+    ("Asphalt", "Pavement", "m3", r"\bAsphalt\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|t|ton|tons?|cy)"),
+    ("HMA", "Pavement", "ton", r"\b(?:HMA|Hot\s*Mix\s*Asphalt)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(t|ton|tons?|cy|m3)"),
+    ("Earthwork Cut", "Earthwork", "m3", r"\b(?:Cut|Excavation)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy|cu\.?\s*yd)"),
+    ("Earthwork Fill", "Earthwork", "m3", r"\b(?:Fill|Embankment)\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy|cu\.?\s*yd)"),
+    ("Concrete", "Structures", "m3", r"\bConcrete\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Kerb", "Roadside", "m", r"\bKerb(?:ing)?\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m|lm|lin(?:ear)?\s*m|lf|ft)"),
+    ("Curb and Gutter", "Roadside", "lf", r"\bCurb(?:ing)?(?:\s*(?:and|&)\s*Gutter)?\b.*?(\d{1,6}(?:,\d{3})*(?:\.\d+)?)\s*(lf|lft|ft|m)"),
+    ("Sidewalk", "Roadside", "sf", r"\bSidewalk\b.*?(\d{1,7}(?:,\d{3})*(?:\.\d+)?)\s*(sf|sq\.?\s*ft|m2|m²|sy)"),
     ("Culvert", "Drainage", "nos", r"\bCulvert(?:s)?\b.*?(\d{1,4})\s*(nos?|no\.?|each|ea)"),
-    ("Drainage", "Drainage", "m", r"\bDrain(?:age)?\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m|lm)"),
-    ("Road Width", "Geometry", "m", r"\b(?:Road|Carriageway)\s*Width\b.*?(\d{1,2}(?:\.\d+)?)\s*m\b"),
+    ("Drainage", "Drainage", "m", r"\bDrain(?:age)?\b.*?(\d{1,3}(?:,\d{3})*(?:\.\d+)?)\s*(m|lm|lf|ft)"),
+    ("Brickwork", "Building", "cy", r"\bBrick(?:work)?\b.*?(\d{1,6}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Plastering", "Building", "sf", r"\bPlaster(?:ing)?\b.*?(\d{1,7}(?:,\d{3})*(?:\.\d+)?)\s*(m2|m²|sf)"),
+    ("Doors", "Building", "ea", r"\bDoors?\b.*?(\d{1,4})\s*(nos?|ea|each)"),
+    ("Windows", "Building", "ea", r"\bWindows?\b.*?(\d{1,4})\s*(nos?|ea|each)"),
+    ("Dam Embankment Fill", "Dams & Reservoirs", "cy", r"\b(?:Dam\s+)?Embankment\b.*?(\d{1,8}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Spillway Concrete", "Dams & Reservoirs", "cy", r"\bSpillway\b.*?(\d{1,7}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Riprap", "Dams & Reservoirs", "cy", r"\bRiprap\b.*?(\d{1,7}(?:,\d{3})*(?:\.\d+)?)\s*(m3|m³|cy|ton)"),
+    ("Reservoir Lining", "Dams & Reservoirs", "sf", r"\b(?:Reservoir|Pond)\s*Lin(?:ing|er)\b.*?(\d{1,8}(?:,\d{3})*(?:\.\d+)?)\s*(m2|m²|sf)"),
+    ("Road Width", "Geometry", "m", r"\b(?:Road|Carriageway)\s*Width\b.*?(\d{1,2}(?:\.\d+)?)\s*(m|ft)\b"),
 ]
 
 ITEM_ALIASES = {
@@ -40,14 +51,24 @@ ITEM_ALIASES = {
     "bc": ("Bituminous Concrete", "Pavement", "m3"),
     "bituminous concrete": ("Bituminous Concrete", "Pavement", "m3"),
     "asphalt": ("Asphalt", "Pavement", "m3"),
+    "hma": ("HMA", "Pavement", "ton"),
     "kerb": ("Kerb", "Roadside", "m"),
-    "curb": ("Kerb", "Roadside", "m"),
+    "curb": ("Curb and Gutter", "Roadside", "lf"),
+    "sidewalk": ("Sidewalk", "Roadside", "sf"),
     "culvert": ("Culvert", "Drainage", "nos"),
     "concrete": ("Concrete", "Structures", "m3"),
     "excavation": ("Earthwork Cut", "Earthwork", "m3"),
     "cut": ("Earthwork Cut", "Earthwork", "m3"),
     "fill": ("Earthwork Fill", "Earthwork", "m3"),
     "embankment": ("Earthwork Fill", "Earthwork", "m3"),
+    "brickwork": ("Brickwork", "Building", "cy"),
+    "plaster": ("Plastering", "Building", "sf"),
+    "doors": ("Doors", "Building", "ea"),
+    "windows": ("Windows", "Building", "ea"),
+    "spillway": ("Spillway Concrete", "Dams & Reservoirs", "cy"),
+    "riprap": ("Riprap", "Dams & Reservoirs", "cy"),
+    "reservoir lining": ("Reservoir Lining", "Dams & Reservoirs", "sf"),
+    "dam embankment": ("Dam Embankment Fill", "Dams & Reservoirs", "cy"),
 }
 
 # Shared accuracy rules for text + vision takeoff (Training Lab Test 1/2 failure modes).
@@ -74,23 +95,68 @@ REQUIRED SEARCH PASSES:
 - Erosion Control, Planting & Landscaping (seed, fertilizer, silt fence, wattles, riprap, blankets, weed control)
 - Surfacing / curb / pavement
 - Water Main (+ continuation pages), Storm Sewer, Sanitary Sewer
+- Structures / bridges / retaining walls
+- Dams, spillways, reservoirs / pond lining
+- Building: brickwork, RCC, doors, windows, plaster, flooring, roofing
 - Alternate A / Alternate B sections
 
 UNITS (normalize on output):
-LS, Each, Ft, LFt, SqFt, SqYd, CuYd, Ton, Lb, Acre, Hour, MGal.
+LS, Each, Ft, LFt, SqFt, SqYd, CuYd, Ton, Lb, Acre, Hour, MGal, Ac-Ft.
 Map ea→Each, lf→Ft when the schedule does not specify otherwise. Preserve decimals (e.g. 4.2 Acre, 7.3 Ton).
 
-TRAFFIC CONTROL / SIGNS (mandatory rollup):
-- Do NOT list individual traffic signs (STOP, YIELD, Speed Limit, W/R/S/G MUTCD codes, temp signs, etc.) as separate Each pay items.
-- Roll ALL traffic control signs into ONE pay item: description "Traffic Control", unit SqFt.
-- For each sign face: use width×height from the PDF/DWG callout when shown; convert in²→SqFt (÷144).
-- If size is missing, use the MUTCD conventional-road size for that designation (e.g. R1-1 STOP 30×30 in).
-- Sum all sign face areas into the single Traffic Control SqFt quantity.
-- Keep traffic signals, pavement markings, barricades/drums, and true temporary traffic-control LS (flagging) separate when they are distinct schedule pay items.
+TRAFFIC CONTROL:
+IF a Bid Items / Estimate Of Quantities table has a Traffic Control section:
+- Copy EVERY row under that heading (BID ITEM number, description, unit, EST. QTY). Do not collapse the section to one line.
+- "Traffic Control" with unit SqFt uses the schedule EST. QTY as-is. Never recompute it from MUTCD 30×30 or plan symbol counts.
+- Keep companion pay items as separate rows when listed: Traffic Control Miscellaneous (LS), barricades (Each),
+  temporary business signs (Each), portable changeable message signs (Each), temporary mailbox (Each),
+  temporary gravel access (LS), winter maintenance (LS), and any other printed Traffic Control bid rows.
+- Copy BID ITEM / Standard Bid Item Number (e.g. 634.0110, 9.0010, Special).
+- Do NOT add extra bid items from F-sheet device tables (“Project Totals”), graphic channelizer counts, or individual MUTCD signs.
+  Those faces are already inside the schedule Traffic Control SqFt quantity.
+ELSE (no bid schedule for signing):
+- Do NOT list individual STOP/YIELD/Speed Limit/MUTCD signs as separate Each pay items.
+- Roll those sign faces into ONE pay item: description "Traffic Control", unit SqFt (width×height in inches ÷ 144).
+- Keep barricades, drums, PCMS, temporary business signs, and true TTC LS items as their own pay items when evidenced.
 
 EVIDENCE:
 Every output item should cite a schedule/pay-item row in source_reference / calculation_method
 (e.g. "EOQ schedule p.3 row"). Omit invents without schedule evidence.
+"""
+
+DESIGN_TAKEOFF_RULES = """
+NO BID SCHEDULE — CIVIL ESTIMATOR MODE (design / drawings only):
+This PDF/drawing is a design, not an agency bid schedule. You MUST generate a complete Estimate of Quantities
+from the design evidence (typical sections, dimensions, callouts, hatch areas, counts, tables of quantities
+printed on the drawing). Cover whichever of these the design actually shows:
+
+ROADS / HIGHWAYS:
+- Pavement layers from typical section: width × thickness × length / 27 = CY (HMA also tons @ 145 pcf).
+- Prime/tack coat SY = width × length / 9. Curb/gutter LF, sidewalk SF, shoulders, markings.
+- Earthwork cut/fill CY when cross-sections or mass-haul notes exist. Do not invent corridor volumes without numbers.
+
+UTILITIES:
+- Pipe LF by size and network (water / sanitary / storm). Count fittings, valves, hydrants, manholes, inlets as EA.
+- Trench excavation / bedding / backfill CY from pipe OD + assumed 4 ft cover, width = max(OD+2', 2.5'), bedding 6".
+  Write those assumptions in calculation_method.
+
+DAMS & RESERVOIRS:
+- Embankment fill, foundation excavation, cutoff, filter/drain, riprap, spillway/stilling-basin concrete.
+- Reservoir / pond lining SF, capacity MGAL or Ac-Ft when stated. Do not fake 3D dam volumes from a 2D outline alone.
+
+BUILDINGS / HOUSES:
+- Brickwork/blockwork CY, RCC/foundation CY, plaster/flooring/roofing/formwork SF, doors/windows EA.
+- Floor/roof areas from stated dimensions (L×W) when no schedule exists.
+
+RULES:
+- Use numbers printed on the design (station range, width, thickness, counts). Show the formula in calculation_method.
+- If a value is assumed (cover, trench width, HMA density), say so and set confidence 70-80.
+- Do NOT invent items the design does not support. Do NOT omit a pay item that the typical section or schedule-like table shows.
+- Keep Traffic Control sign rollup (one SqFt item) as in the shared rules below.
+
+""" + TAKEOFF_ACCURACY_RULES.split("REQUIRED SEARCH PASSES:")[-1].split("EVIDENCE:")[0] + """
+EVIDENCE:
+Cite the typical section, dimension, sheet, or callout in source_reference / calculation_method.
 """
 
 _SCHEDULE_METHOD_HINTS = (
@@ -176,6 +242,9 @@ _CONTRACT_UNIT_MAP = {
     "hour": "Hour",
     "hr": "Hour",
     "mgal": "MGal",
+    "ac-ft": "Ac-Ft",
+    "acre-ft": "Ac-Ft",
+    "acre ft": "Ac-Ft",
 }
 
 
@@ -421,7 +490,36 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
 
     # Geometry notes
     facts: list[dict[str, Any]] = []
-    width_match = re.search(r"\b(?:Road|Carriageway)\s*Width\b[^\d]{0,20}(\d{1,2}(?:\.\d+)?)\s*m\b", text, re.I)
+    from app.services.civil_estimator import detect_project_types, items_from_design_text
+
+    project_types = detect_project_types(filename, text)
+    if project_types:
+        facts.append({"key": "project_types", "value": ", ".join(project_types)})
+
+    if not _content_has_eoq_schedule(content):
+        for it in items_from_design_text(text, filename=filename):
+            key = str(it.get("description") or "").lower()
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            qty = _parse_number(it.get("quantity"))
+            if qty is None:
+                continue
+            items.append(
+                _item(
+                    description=str(it.get("description")),
+                    category=str(it.get("category") or "General"),
+                    unit=str(it.get("unit") or "unit"),
+                    quantity=qty,
+                    document_id=document_id,
+                    page=None,
+                    source=f"{filename} - design takeoff",
+                    method=str(it.get("calculation_method") or "Civil estimator from design text"),
+                    confidence=float(it.get("confidence") or 80),
+                )
+            )
+
+    width_match = re.search(r"\b(?:Road|Carriageway)\s*Width\b[^\d]{0,20}(\d{1,2}(?:\.\d+)?)\s*(m|ft)\b", text, re.I)
     if width_match:
         facts.append({"key": "road_width_m", "value": width_match.group(1), "source_page": _guess_page(text, width_match.start(), content)})
 
@@ -446,9 +544,14 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
     }
 
 
-def _catalog_prompt_bits(bid_catalog: list[dict[str, Any]] | None) -> tuple[str, str, str]:
+def _catalog_prompt_bits(
+    bid_catalog: list[dict[str, Any]] | None,
+    *,
+    design_takeoff: bool = False,
+) -> tuple[str, str, str]:
     catalog = bid_catalog or []
     catalog_preview = json.dumps(catalog[:100], ensure_ascii=True)[:12000] if catalog else "[]"
+    takeoff_rules = DESIGN_TAKEOFF_RULES if design_takeoff else TAKEOFF_ACCURACY_RULES
     if catalog:
         system = (
             "You are a USA civil/highway quantity surveyor AI for AutoVAD. "
@@ -466,20 +569,23 @@ Template rules:
 - When matched, use the template description EXACTLY, its unit, and Standard Bid Item Number as item_code.
 - Unmatched but evidenced schedule/callout work may still be included with empty item_code.
 - Never invent extras that are not on the template or clearly called out.
-{TAKEOFF_ACCURACY_RULES}
+{takeoff_rules}
 """
         code_hint = "Use Standard Bid Item Numbers from the active template when matched."
     else:
-        system = (
-            "You are a USA civil/highway quantity surveyor AI for AutoVAD. "
-            "Extract Estimate Of Quantities / EOQ pay items. Prefer quantity schedules and "
-            "explicit callouts over inferred geometry. Return STRICT JSON only."
+        role = (
+            "civil estimator AI for AutoVAD. Produce a complete Estimate of Quantities from the design "
+            "(roads, utilities, dams, reservoirs, buildings) when no bid schedule exists."
+            if design_takeoff
+            else "USA civil/highway quantity surveyor AI for AutoVAD. Extract Estimate Of Quantities / EOQ pay items. "
+            "Prefer quantity schedules and explicit callouts over inferred geometry."
         )
+        system = f"You are a {role} Return STRICT JSON only."
         catalog_rules = f"""
 No agency bid template — use exact schedule/pay-item wording when an EOQ table is present;
 otherwise use clear USA civil/CSI descriptions
-(earthwork, pavement, curb/gutter, sidewalk, drainage, utilities, manholes, removals, etc.).
-{TAKEOFF_ACCURACY_RULES}
+(earthwork, pavement, curb/gutter, sidewalk, drainage, utilities, dams, reservoirs, buildings, removals).
+{takeoff_rules}
 """
         code_hint = "Prefer STD BID NO / USA CSI codes when identifiable."
     return system, catalog_rules, code_hint
@@ -530,18 +636,26 @@ def _analyze_with_openai(
 
     clipped = (content.text or "")[:50000]
     tables_preview = json.dumps(content.tables[:12], ensure_ascii=True)[:18000]
-    system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog)
+    design_takeoff = not _content_has_eoq_schedule(content)
+    system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog, design_takeoff=design_takeoff)
+
+    design_or_schedule = (
+        "No EOQ/bid schedule was detected — act as a civil estimator and generate pay items from "
+        "typical sections, dimensions, and callouts (roads, utilities, dams, reservoirs, buildings)."
+        if design_takeoff
+        else "Harvest EVERY row from EOQ / Bid Items / quantity tables (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY or ITEM NO, STD BID NO, APPROX. QUANTITY). For a Traffic Control heading, copy every row in that section, including LS and Each companions, and the SqFt EST. QTY as printed."
+    )
 
     user = f"""
 Extract Estimate Of Quantities / EOQ pay items from the document TEXT and TABLES.
 (Drawing sheets are analyzed separately via vision.)
 
 Rules:
-- Harvest EVERY row from EOQ / bid / quantity tables (ITEM NO, STD BID NO, ITEM DESCRIPTION, UNIT, APPROX. QUANTITY).
+- {design_or_schedule}
 - Merge continuation tables: “(Ctd.)”, “continued”, repeated headers → same category; do not stop at page breaks.
 - Include Alternates (A/B), LS items (Mobilization, Tax…), Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
-- Copy the schedule quantity cell — do not substitute a detail/callout count.
-- Do NOT invent water fittings/valves/hydrants/pipe segments from free text unless they are schedule rows.
+- Copy the schedule quantity cell — do not substitute a detail/callout count — WHEN a schedule exists.
+- Do NOT invent water fittings/valves/hydrants/pipe segments from free text unless they are schedule rows OR this is design-only takeoff with printed sizes/counts.
 - If unsure, omit inventing values and mark needs_review.
 {catalog_rules}
 
@@ -664,7 +778,10 @@ def _analyze_pdf_drawings_with_vision(
     if not plan.selected_pages:
         raise RuntimeError("No PDF pages could be rendered for vision")
 
-    system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog)
+    design_takeoff = not _content_has_eoq_schedule(content)
+    system, catalog_rules, code_hint = _catalog_prompt_bits(
+        bid_catalog, design_takeoff=design_takeoff
+    )
 
     # Hint model with OCR snippets that look like water-main labels
     label_hints = ""
@@ -683,8 +800,12 @@ def _analyze_pdf_drawings_with_vision(
         system
         + " "
         + code_hint
-        + " Prefer EOQ/bid schedules on sheets. Merge (Ctd.) pages. "
-        + "Do not invent fittings/valves from plan details when a schedule exists."
+        + " Prefer EOQ/bid schedules on sheets when present. Merge (Ctd.) pages. "
+        + (
+            "No schedule: generate civil-estimator EOQ from typical sections, dimensions, and counts."
+            if design_takeoff
+            else "Do not invent fittings/valves from plan details when a schedule exists."
+        )
     )
     all_items: list[dict[str, Any]] = []
     all_facts: list[Any] = []
@@ -703,25 +824,41 @@ def _analyze_pdf_drawings_with_vision(
             f"Document has {plan.page_count} page(s); this request covers pages "
             f"{[p.page for p in batch]}. Extract ALL bid/takeoff items visible on THESE sheets only."
         )
+        sheet_job = (
+            """
+Primary job:
+- If an Estimate Of Quantities / bid quantity table appears, extract EVERY row (LEFT then RIGHT).
+- Continuation “(Ctd.)” keeps the parent category. Include Alternates, LS, Traffic Control, Removals, landscaping.
+- Copy APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a project total.
+- On sheets WITHOUT an EOQ table: take off pay items as a civil estimator from typical sections, dimensions,
+  hatch areas, and printed counts (roads, utilities, dams/reservoirs, buildings). Show formulas in calculation_method.
+  Assumed trench cover is 4 ft, trench width OD+2' (min 2.5'), HMA 145 pcf — write assumptions down.
+"""
+            if design_takeoff
+            else """
+Primary job:
+- If an Estimate Of Quantities / Bid Items table appears (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY
+  or ITEM NO / STD BID NO / APPROX. QUANTITY), extract EVERY row from LEFT then RIGHT. That schedule is the
+  ONLY source for pay items on that sheet.
+- Traffic Control section: copy EVERY row under the heading — not only the SqFt signing line. Typical companions:
+  Traffic Control (SqFt = EST. QTY), Traffic Control Miscellaneous (LS), barricades (Each), temporary business
+  signs, portable changeable message signs, temporary mailbox, temporary gravel access (LS), winter maintenance (LS).
+  Copy the BID ITEM number (e.g. 634.0110 or Special). Do not recompute Traffic Control SqFt from MUTCD 30×30.
+  Do not add channelizers or MUTCD signs from F-sheet graphics or device “Project Totals” tables.
+- Continuation: if the header says “(Ctd.)” / Continued, keep extracting rows into the parent category.
+- Include Alternates, LS/general, Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
+- Copy the EST. QTY / APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a total.
+- On pure plan/profile/detail sheets WITHOUT an EOQ/Bid Items table: do not invent water fittings, valves,
+  hydrants, casing/carrier segments, pavement layers, or extra traffic devices from symbols.
+"""
+        )
         user = f"""
 You are looking at RENDERED ENGINEERING PLAN SHEETS from a civil PDF (not just OCR text).
 
 Document: {filename}
 Rendered sheets: {page_meta}
 {coverage_note}
-
-Primary job:
-- If an Estimate Of Quantities / bid quantity table appears (often two side-by-side tables:
-  ITEM NO, STD BID NO, ITEM DESCRIPTION, UNIT, APPROX. QUANTITY), extract EVERY row from
-  LEFT then RIGHT. That schedule is the ONLY source for pay items on that sheet.
-- Continuation: if the header says “(Ctd.)” / Continued, keep extracting rows into the parent category
-  (e.g. Water Main). Do not stop early; do not invent a separate incomplete category.
-- Include Alternates, LS/general, Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
-- Copy the APPROX. QUANTITY from the schedule cell (including large and decimal values). Do not count
-  symbols or use a detail quantity when the schedule shows a project total.
-- On pure plan/profile/detail sheets WITHOUT an EOQ table: do not invent water fittings, valves,
-  hydrants, casing/carrier segments, or pavement layers from symbols. Skip those sheets for item creation
-  unless an explicit schedule/pay-item note is printed.
+{sheet_job}
 {catalog_rules}
 
 {label_hints}
@@ -831,6 +968,10 @@ def _method_rank(item: dict[str, Any]) -> int:
     ).lower()
     desc = str(item.get("description") or "")
     if any(h in method for h in _SCHEDULE_METHOD_HINTS):
+        from app.services.traffic_control import is_plan_device_takeoff
+
+        if is_plan_device_takeoff(item):
+            return 0
         return 3
     # Plan-derived fittings/components are weakest when schedules exist
     if _GENERIC_INFERRED_DESC.search(desc) and any(
@@ -845,7 +986,11 @@ def _method_rank(item: dict[str, Any]) -> int:
 
 
 def _looks_like_schedule_item(item: dict[str, Any]) -> bool:
-    if item.get("item_code") or item.get("csi_code"):
+    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
+
+    if is_plan_device_takeoff(item):
+        return False
+    if looks_like_agency_bid_number(item.get("item_code")):
         return True
     return _method_rank(item) >= 3
 
@@ -866,6 +1011,9 @@ def _is_plan_derived(item: dict[str, Any]) -> bool:
             "engineering drawing",
             "geometry",
             "symbol",
+            "graphic",
+            "project total",
+            "itemized table",
             "typical section",
             "inferred",
         )
@@ -887,6 +1035,10 @@ def _content_has_eoq_schedule(content: ExtractedContent | None) -> bool:
             "std bid",
             "standard bid",
             "for bidding purposes only",
+            "bid item",
+            "est. qty",
+            "est qty",
+            "item number",
         )
     ) and any(k in blob for k in ("quantity", "unit", "item")):
         return True
@@ -902,6 +1054,8 @@ def _content_has_eoq_schedule(content: ExtractedContent | None) -> bool:
         ):
             return True
         if "std bid" in header or "item description" in header:
+            return True
+        if "bid item" in header and ("qty" in header or "quantity" in header):
             return True
     return False
 
@@ -940,6 +1094,18 @@ def _should_drop_inferred_extra(
     if _GENERIC_INFERRED_DESC.search(desc) and (_is_plan_derived(item) or rank <= 1):
         return True
     if _is_plan_derived(item) and not item.get("item_code") and conf < 96:
+        return True
+    from app.services.traffic_control import is_plan_device_takeoff, is_traffic_sign_item, looks_like_agency_bid_number
+
+    if (
+        schedule_present
+        and is_plan_device_takeoff(item)
+        and not looks_like_agency_bid_number(item.get("item_code"))
+        and (
+            is_traffic_sign_item(item)
+            or re.search(r"channeliz", desc, re.I)
+        )
+    ):
         return True
     if rank == 0 and conf < 92:
         return True
@@ -1046,7 +1212,11 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
     # Roll individual traffic signs → one SqFt "Traffic Control" item
     from app.services.traffic_control import consolidate_traffic_control_signs
 
-    cleaned, tc_meta = consolidate_traffic_control_signs(cleaned, allow_online_refresh=True)
+    cleaned, tc_meta = consolidate_traffic_control_signs(
+        cleaned,
+        allow_online_refresh=not schedule_present,
+        schedule_present=schedule_present,
+    )
     for item in cleaned:
         item["unit"] = _normalize_contract_unit(item.get("unit"))
 

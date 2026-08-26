@@ -13,7 +13,7 @@ Build and place `appbundle.zip` here when you want the plugin activity (`AutoVad
 1. Install Visual Studio + .NET Framework / SDK compatible with your AutoCAD year.
 2. Create a Class Library project targeting **.NET Framework 4.8** (or the version required by your AutoCAD API).
 3. Reference AutoCAD libraries (`AcCoreMgd`, `AcDbMgd`, `AcMgd`) from your AutoCAD install, **Copy Local = False**.
-4. Optional Civil 3D: also reference `AeccDbMgd`, `AecBaseMgd` and extend `Commands.cs` for alignments/pipes/surfaces.
+4. Optional Civil 3D: reference `AeccDbMgd` / `AecBaseMgd` (or run on a Civil 3D DA engine). `Commands.cs` already late-binds Civil APIs — `Alignment.StationOffset`, pipe networks, structure Easting/Northing — and always writes block insert XY, polyline vertices, and paper-space STA/offset labels.
 5. Build **x64 Release**, copy `AutoVadCivilTakeoff.dll` into `Contents/`.
 6. Zip `PackageContents.xml` + `Contents/` as **`appbundle.zip`** in this folder  
    (or run from backend: `python -c "from app.services.cad.design_automation import package_appbundle_from_folder; from pathlib import Path; print(package_appbundle_from_folder(Path('cad_plugins/AutoVadCivilTakeoff')))"`).

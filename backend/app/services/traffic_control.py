@@ -28,15 +28,12 @@ _MUTCD_CODE_RE = re.compile(
     re.I,
 )
 
-# Explicit size callouts: 30x30, 24" x 36", 2'-0" x 3'-0", 30 in x 30 in, 2.5 ft x 2.5 ft
+# Explicit size callouts: 30x30, 24" x 36", 48-Inch x 30-Inch, 2 ft x 2.5 ft
+_UNIT = r"(?:\"|''|in(?:ch(?:es)?)?|ft|feet|')"
 _SIZE_PATTERNS = [
     re.compile(
-        r"(?P<w>\d+(?:\.\d+)?)\s*(?P<wu>(?:\"|''|in(?:ch(?:es)?)?|ft|feet|')?)\s*[x×]\s*"
-        r"(?P<h>\d+(?:\.\d+)?)\s*(?P<hu>(?:\"|''|in(?:ch(?:es)?)?|ft|feet|')?)",
-        re.I,
-    ),
-    re.compile(
-        r"(?P<w>\d+(?:\.\d+)?)\s*(?P<wu>\"|''|in)\s*[x×]\s*(?P<h>\d+(?:\.\d+)?)\s*(?P<hu>\"|''|in)?",
+        rf"(?P<w>\d+(?:\.\d+)?)\s*-?\s*(?P<wu>{_UNIT})?\s*[x×]\s*"
+        rf"(?P<h>\d+(?:\.\d+)?)\s*-?\s*(?P<hu>{_UNIT})?",
         re.I,
     ),
 ]
@@ -82,6 +79,13 @@ _SIGN_NEGATIVE = re.compile(
     r"\bdelineator\b|"
     r"\bflagger\s+(?:station|hours?)\b|"
     r"\bmobilization\b|"
+    r"\btemporary\s+business\s+sign\b|"
+    r"\b(?:portable\s+)?changeable\s+message\s+sign\b|"
+    r"\bpcms\b|"
+    r"\bmailbox\b|"
+    r"\bgravel\s+access\b|"
+    r"\bwinter\s+maintenance\b|"
+    r"\btraffic\s+control\s*,?\s*misc|"
     r"\btemporary\s+traffic\s+control\b(?!.*\bsign)|"
     r"\bttc\b(?!.*\bsign)"
     r")",
@@ -91,6 +95,44 @@ _SIGN_NEGATIVE = re.compile(
 _GENERIC_TC_RE = re.compile(
     r"^\s*traffic\s+control(?:\s*\(signing\))?\s*$",
     re.I,
+)
+
+# Bid-schedule companions under a Traffic Control heading — never roll into SqFt.
+_DISTINCT_TC_PAY_RE = re.compile(
+    r"(?:"
+    r"\bbarricade\b|"
+    r"\bchanneliz(?:er|ation)\b|"
+    r"\bdrum\b|"
+    r"\bcone\b|"
+    r"\bpcms\b|"
+    r"\bchangeable\s+message\b|"
+    r"\bbusiness\s+sign\b|"
+    r"\bmailbox\b|"
+    r"\bgravel\s+access\b|"
+    r"\bwinter\s+maintenance\b|"
+    r"\btraffic\s+control\s*,?\s*misc|"
+    r"\bflagging\b|"
+    r"\bpilot\s+car\b"
+    r")",
+    re.I,
+)
+
+_AGENCY_BID_NO_RE = re.compile(r"^\s*(?:special|\d{1,4}\.\d{2,4}[a-z]?)\s*$", re.I)
+
+_PLAN_DEVICE_HINTS = (
+    "graphic count",
+    "symbol",
+    "symbols",
+    "project total",
+    "itemized table",
+    "mutcd ref",
+    "consolidated",
+    "in²",
+    "in2",
+    "÷144",
+    "/144",
+    "width(in)",
+    "default_conventional",
 )
 
 
@@ -247,26 +289,84 @@ def lookup_mutcd_size(
     return None
 
 
+def _evidence_blob(item: dict[str, Any]) -> str:
+    return (
+        f"{item.get('calculation_method') or ''} "
+        f"{item.get('source_reference') or ''} "
+        f"{item.get('source') or ''} "
+        f"{item.get('description') or ''}"
+    ).lower()
+
+
+def looks_like_agency_bid_number(code: Any) -> bool:
+    raw = str(code or "").strip()
+    if not raw:
+        return False
+    # CSI MasterFormat uses spaces: "01 71 13" — not an agency bid number
+    if re.match(r"^\d{2}\s+\d{2}\s+\d{2}", raw):
+        return False
+    return bool(_AGENCY_BID_NO_RE.match(raw))
+
+
+def is_distinct_traffic_pay_item(item: dict[str, Any]) -> bool:
+    """True for bid-schedule Traffic Control companions (barricade, PCMS, mailbox, …)."""
+    desc = str(item.get("description") or "")
+    if _GENERIC_TC_RE.match(desc.strip()):
+        return False
+    if _DISTINCT_TC_PAY_RE.search(desc):
+        return True
+    unit = str(item.get("unit") or "").lower()
+    if "traffic control" in desc.lower() and unit in {"ls", "lump sum"}:
+        return True
+    return False
+
+
+def is_plan_device_takeoff(item: dict[str, Any]) -> bool:
+    """F-sheet device tables, graphic symbol counts, MUTCD 30×30 rollups — not bid rows."""
+    blob = _evidence_blob(item)
+    return any(h in blob for h in _PLAN_DEVICE_HINTS)
+
+
+def is_generic_traffic_control_signing(item: dict[str, Any]) -> bool:
+    desc = str(item.get("description") or "").strip()
+    if not _GENERIC_TC_RE.match(desc):
+        return False
+    if is_distinct_traffic_pay_item(item):
+        return False
+    return True
+
+
+def _unit_is_sqft(unit: Any) -> bool:
+    u = str(unit or "").lower().replace(".", "").replace(" ", "")
+    return u in {"sqft", "sf", "squarefoot", "squarefeet", "sqft"}
+
+
 def is_traffic_sign_item(item: dict[str, Any]) -> bool:
-    """True for individual traffic/control signs (not signals, striping, TTC LS, etc.)."""
+    """True for individual MUTCD/plan signs (not schedule pay items or signals)."""
     desc = str(item.get("description") or "")
     cat = str(item.get("category") or "")
     method = str(item.get("calculation_method") or "")
     ref = str(item.get("source_reference") or "")
     blob = f"{desc} {cat} {method} {ref}"
 
-    if _GENERIC_TC_RE.match(desc.strip()):
-        # Existing rollup line — not an individual sign to measure again
+    if is_distinct_traffic_pay_item(item):
+        return False
+    if is_generic_traffic_control_signing(item):
         return False
     if _SIGN_NEGATIVE.search(blob) and not _SIGN_POSITIVE.search(desc):
+        return False
+    if _SIGN_NEGATIVE.search(desc):
         return False
     if extract_mutcd_code(desc, ref):
         return True
     if _SIGN_POSITIVE.search(desc):
         return True
-    # Category + Each unit often used for sign callouts
     unit = str(item.get("unit") or "").lower()
     if unit in {"each", "ea", "nos"} and re.search(r"\bsign", desc, re.I):
+        return True
+    if parse_sign_size_inches(desc) and re.search(
+        r"sign|traffic|mutcd|warning|regulatory|guide|signing", blob, re.I
+    ):
         return True
     return False
 
@@ -286,7 +386,7 @@ def resolve_sign_area_sqft(
     ]
     qty = float(item.get("quantity") or 1) or 1.0
     # If already SqFt and description is a single sign type, trust quantity as total SF for that row
-    unit = str(item.get("unit") or "").lower().replace(".", "")
+    unit = str(item.get("unit") or "").lower().replace(".", "").replace(" ", "")
     if unit in {"sqft", "sf", "squarefoot", "squarefeet"} and qty > 0:
         return {
             "sqft": round(qty, 4),
@@ -325,34 +425,95 @@ def resolve_sign_area_sqft(
         height_in = float(default["height_in"])
         size_source = "default_conventional_30x30"
 
-    # Count: Each/EA quantity = number of faces; if unit already SF handled above
-    count = qty if str(item.get("unit") or "").lower() in {"each", "ea", "nos", "no", "unit", ""} else 1.0
+    # Count: Each/EA quantity = number of faces. Inches are the face size, never the pay unit.
+    unit_l = str(item.get("unit") or "").lower().replace(".", "")
+    if unit_l in {"each", "ea", "nos", "no", "unit", ""}:
+        count = qty
+    else:
+        count = 1.0
     if count <= 0:
         count = 1.0
     face_sf = inches_to_sqft(width_in, height_in)
+    formula = f"{width_in:g} in × {height_in:g} in = {face_sf:g} SqFt (in²÷144)"
+    if count != 1.0:
+        formula = f"{count:g} × {formula}"
     return {
         "sqft": round(face_sf * count, 4),
         "count": count,
         "width_in": width_in,
         "height_in": height_in,
         "face_sqft": face_sf,
+        "formula": formula,
         "size_source": size_source,
         "code": code,
         "description": desc,
     }
 
 
+def _prefer_schedule_tc_row(existing: dict[str, Any], candidate: dict[str, Any]) -> dict[str, Any]:
+    """Keep the bid-schedule Traffic Control SqFt row over a MUTCD-computed one."""
+    def score(row: dict[str, Any]) -> tuple[int, float]:
+        pts = 0
+        if looks_like_agency_bid_number(row.get("item_code")):
+            pts += 8
+        blob = _evidence_blob(row)
+        if any(h in blob for h in ("estimate of quantities", "bid item", "est. qty", "eoq schedule", "std bid")):
+            pts += 6
+        if is_plan_device_takeoff(row):
+            pts -= 8
+        try:
+            conf = float(row.get("confidence") or 0)
+        except (TypeError, ValueError):
+            conf = 0.0
+        return pts, conf
+
+    return candidate if score(candidate) > score(existing) else existing
+
+
+def _filter_plan_invented_when_schedule(
+    kept: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Drop F-sheet extras when a real Traffic Control bid section was captured."""
+    has_gravel_ls = any(
+        re.search(r"gravel\s+access", str(i.get("description") or ""), re.I)
+        and str(i.get("unit") or "").lower() in {"ls", "lump sum"}
+        for i in kept
+    )
+    out: list[dict[str, Any]] = []
+    for item in kept:
+        desc = str(item.get("description") or "")
+        unit = str(item.get("unit") or "").lower()
+        planish = is_plan_device_takeoff(item) and not looks_like_agency_bid_number(item.get("item_code"))
+        if planish and re.search(r"channeliz", desc, re.I):
+            continue
+        if has_gravel_ls and re.search(r"gravel\s+access", desc, re.I) and unit not in {"ls", "lump sum"}:
+            continue
+        out.append(item)
+
+    barricades = [i for i in out if re.search(r"barricade", str(i.get("description") or ""), re.I)]
+    if len(barricades) > 1:
+        best = barricades[0]
+        for b in barricades[1:]:
+            best = _prefer_schedule_tc_row(best, b)
+        out = [
+            i
+            for i in out
+            if i is best or not re.search(r"barricade", str(i.get("description") or ""), re.I)
+        ]
+    return out
+
+
 def consolidate_traffic_control_signs(
     items: list[dict[str, Any]],
     *,
     allow_online_refresh: bool = True,
+    schedule_present: bool = False,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Replace individual traffic signs with one SqFt 'Traffic Control' item."""
+    """Schedule Traffic Control pay items stay intact; MUTCD plan signs roll to SqFt only if no schedule."""
     if not items:
         return items, {"sign_rows": 0, "total_sqft": 0.0}
 
-    # One online refresh per consolidation pass (not per sign)
-    if allow_online_refresh:
+    if allow_online_refresh and not schedule_present:
         try:
             refresh_mutcd_from_online()
         except Exception:  # noqa: BLE001
@@ -361,84 +522,130 @@ def consolidate_traffic_control_signs(
     kept: list[dict[str, Any]] = []
     existing_tc: dict[str, Any] | None = None
     sign_details: list[dict[str, Any]] = []
-    total_sqft = 0.0
+    dropped_plan_signs = 0
 
     for raw in items:
         item = dict(raw)
-        desc = str(item.get("description") or "").strip()
-        if _GENERIC_TC_RE.match(desc):
-            # Prefer converting prior Each/LS Traffic Control into the SF rollup target
-            unit = str(item.get("unit") or "").lower()
-            if unit in {"sqft", "sf", "square foot", "square feet"}:
-                try:
-                    total_sqft += float(item.get("quantity") or 0)
-                except (TypeError, ValueError):
-                    pass
+        if is_distinct_traffic_pay_item(item):
+            kept.append(item)
+            continue
+
+        if is_generic_traffic_control_signing(item):
+            if _unit_is_sqft(item.get("unit")):
+                existing_tc = _prefer_schedule_tc_row(existing_tc, item) if existing_tc else item
+            elif schedule_present:
+                # LS/Each "Traffic Control" without "Miscellaneous" — keep if it has a bid number
+                if looks_like_agency_bid_number(item.get("item_code")):
+                    kept.append(item)
+                elif existing_tc is None:
+                    existing_tc = item
+            else:
                 existing_tc = item
-                continue
-            # Drop LS/Each generic Traffic Control — replaced by SF signing total
-            existing_tc = item
             continue
 
         if is_traffic_sign_item(item):
+            if schedule_present:
+                dropped_plan_signs += 1
+                continue
             detail = resolve_sign_area_sqft(item, allow_online_refresh=False)
-            total_sqft += float(detail["sqft"])
             sign_details.append(detail)
             continue
 
         kept.append(item)
 
     meta = {
-        "sign_rows": len(sign_details),
-        "total_sqft": round(total_sqft, 2),
+        "sign_rows": len(sign_details) + dropped_plan_signs,
+        "dropped_plan_signs": dropped_plan_signs,
+        "total_sqft": 0.0,
         "details": sign_details[:80],
         "mutcd_source": (_load_mutcd() or {}).get("source_url"),
+        "schedule_present": schedule_present,
     }
+
+    if schedule_present:
+        kept = _filter_plan_invented_when_schedule(kept)
+        if existing_tc is not None:
+            if _unit_is_sqft(existing_tc.get("unit")):
+                existing_tc = dict(existing_tc)
+                existing_tc["unit"] = "SqFt"
+                existing_tc["category"] = existing_tc.get("category") or "General / Traffic Control"
+                kept.append(existing_tc)
+                try:
+                    meta["total_sqft"] = round(float(existing_tc.get("quantity") or 0), 2)
+                except (TypeError, ValueError):
+                    meta["total_sqft"] = 0.0
+            else:
+                kept.append(existing_tc)
+        return kept, meta
+
+    total_sqft = 0.0
+    if existing_tc is not None and _unit_is_sqft(existing_tc.get("unit")):
+        try:
+            total_sqft += float(existing_tc.get("quantity") or 0)
+        except (TypeError, ValueError):
+            pass
+    for detail in sign_details:
+        total_sqft += float(detail.get("sqft") or 0)
+    meta["total_sqft"] = round(total_sqft, 2)
 
     if not sign_details and existing_tc is None:
         return items, meta
     if total_sqft <= 0 and not sign_details:
-        # Nothing to roll up
         if existing_tc:
             kept.append(existing_tc)
         return kept, meta
 
-    sources = sorted({d.get("size_source") or "" for d in sign_details if d.get("size_source")})
-    method = (
-        f"Consolidated {len(sign_details)} traffic sign(s) into SqFt "
-        f"(plan/DWG sizes when present, else MUTCD conventional-road sizes). "
-        f"Size sources: {', '.join(s for s in sources if s) or 'n/a'}."
-    )
-    codes = [d.get("code") for d in sign_details if d.get("code")]
-    ref_bits = []
-    if codes:
-        ref_bits.append("codes " + ", ".join(sorted(set(str(c) for c in codes))[:12]))
-    if meta.get("mutcd_source"):
-        ref_bits.append(f"MUTCD ref {meta['mutcd_source']}")
+    if sign_details:
+        sources = sorted({d.get("size_source") or "" for d in sign_details if d.get("size_source")})
+        formulas = [str(d.get("formula")) for d in sign_details if d.get("formula")]
+        method = (
+            f"Consolidated {len(sign_details)} traffic sign(s) into SqFt of sign face. "
+            f"USA pay unit is square feet, not inches: width(in)×height(in)÷144. "
+            f"Size sources: {', '.join(s for s in sources if s) or 'n/a'}."
+        )
+        if formulas:
+            method += " " + "; ".join(formulas[:8])
+            if len(formulas) > 8:
+                method += f" (+{len(formulas) - 8} more)"
+        codes = [d.get("code") for d in sign_details if d.get("code")]
+        ref_bits = []
+        if codes:
+            ref_bits.append("codes " + ", ".join(sorted(set(str(c) for c in codes))[:12]))
+        if meta.get("mutcd_source"):
+            ref_bits.append(f"MUTCD ref {meta['mutcd_source']}")
 
-    from app.services.csi_mapper import enrich_quantity_item
+        from app.services.csi_mapper import enrich_quantity_item
 
-    src_doc = (existing_tc or {}).get("source_document_id")
-    if src_doc is None:
-        src_doc = next((i.get("source_document_id") for i in items if i.get("source_document_id")), None)
+        src_doc = (existing_tc or {}).get("source_document_id")
+        if src_doc is None:
+            src_doc = next((i.get("source_document_id") for i in items if i.get("source_document_id")), None)
 
-    rolled = {
-        "item_code": (existing_tc or {}).get("item_code"),
-        "description": "Traffic Control",
-        "category": "General / Traffic Control",
-        "unit": "SqFt",
-        "quantity": round(total_sqft, 2),
-        "source_document_id": src_doc,
-        "source_page": (existing_tc or {}).get("source_page"),
-        "source_reference": "; ".join(ref_bits) or "Traffic signing takeoff",
-        "calculation_method": method,
-        "confidence": 90.0
-        if any((d.get("size_source") or "").startswith(("plan", "mutcd")) for d in sign_details)
-        else 82.0,
-        "status": "needs_review",
-        "traffic_control_breakdown": sign_details,
-    }
+        rolled = {
+            "item_code": (existing_tc or {}).get("item_code")
+            if looks_like_agency_bid_number((existing_tc or {}).get("item_code"))
+            else (existing_tc or {}).get("item_code"),
+            "description": "Traffic Control",
+            "category": "General / Traffic Control",
+            "unit": "SqFt",
+            "quantity": round(total_sqft, 2),
+            "source_document_id": src_doc,
+            "source_page": (existing_tc or {}).get("source_page"),
+            "source_reference": "; ".join(ref_bits) or "Traffic signing takeoff",
+            "calculation_method": method
+            if not (existing_tc and _unit_is_sqft(existing_tc.get("unit")) and not is_plan_device_takeoff(existing_tc))
+            else str(existing_tc.get("calculation_method") or method),
+            "confidence": 90.0
+            if any((d.get("size_source") or "").startswith(("plan", "mutcd")) for d in sign_details)
+            else 82.0,
+            "status": "needs_review",
+            "traffic_control_breakdown": sign_details,
+        }
+        rolled = enrich_quantity_item(rolled)
+        rolled["unit"] = "SqFt"
+        kept.append(rolled)
+        meta["rolled_into"] = "Traffic Control"
+        return kept, meta
 
-    kept.append(enrich_quantity_item(rolled))
-    meta["rolled_into"] = "Traffic Control"
+    if existing_tc:
+        kept.append(existing_tc)
     return kept, meta
