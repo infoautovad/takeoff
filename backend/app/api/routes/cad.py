@@ -22,6 +22,7 @@ from app.services.cad.engine import detect_cad_format, list_project_cad_models
 from app.services.notifications import notify
 from app.services.openai_client import openai_status
 from app.services.processing import process_document
+from app.schemas.units import PayUnit
 
 router = APIRouter()
 
@@ -32,7 +33,7 @@ class CadQuantityOut(BaseModel):
     id: int
     description: str
     category: str | None
-    unit: str
+    unit: PayUnit
     quantity: float
     layer: str | None
     entity_type: str | None

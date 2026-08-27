@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from app.services.incidental import skip_text_extraction
+
 # Use horizontal whitespace only so labels on the next line are not glued on.
 _S = r"[^\S\n]*"
 _SIZE = rf"(?P<size>\d{{1,2}}(?:\.\d+)?){_S}(?:\"|''|in(?:ch(?:es)?)?)"
@@ -194,6 +196,15 @@ def extract_utility_label_items(
 
             # Sized water main label without length: keep as EA? No — skip LF without qty
             if qty is None or qty <= 0:
+                continue
+            line_start = cleaned.rfind("\n", 0, match.start()) + 1
+            line_end = cleaned.find("\n", match.end())
+            line = cleaned[line_start : line_end if line_end >= 0 else len(cleaned)]
+            if skip_text_extraction(
+                desc,
+                line,
+                match_start=match.start() - line_start,
+            ):
                 continue
             if unit == "LF" and (qty < 1 or qty > 200000):
                 continue

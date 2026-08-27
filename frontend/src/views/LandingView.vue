@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { creditsRemaining, creditsRemainingPct } from '@/utils/credits'
+import { formatUnit } from '@/utils/format'
 import landingCss from '@/styles/landing/globals.css?inline'
 
 const LANDING_STYLE_ID = 'autovad-landing-css'
@@ -822,7 +823,7 @@ onUnmounted(() => {
           <span>{{ row.item }}</span>
           <strong>{{ row.desc }}</strong>
           <span>{{ row.qty }}</span>
-          <span>{{ row.unit }}</span>
+          <span>{{ formatUnit(row.unit) }}</span>
           <span><i />{{ row.conf }}</span>
         </div>
         <div class="window-summary">

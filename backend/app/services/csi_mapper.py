@@ -38,8 +38,8 @@ CSI_RULES: list[tuple[list[str], str, str, str | None]] = [
     (["traffic sign", "road sign", "signage", "signing"], "10 14 53", "Traffic Signals & Signing", "sf"),
     (["signal", "traffic signal"], "34 41 13", "Traffic Signals & Signing", "ea"),
     (["landscaping", "sodding", "seeding", "turf", "fertiliz", "mulch", "erosion", "silt fence"], "32 92 00", "Erosion Control / Restoration", "sy"),
-    (["mobilization"], "01 71 13", "General / Traffic Control", "ls"),
-    (["traffic control"], "01 71 13", "General / Traffic Control", "sf"),
+    (["mobilization"], "01 71 13", "General", "ls"),
+    (["traffic control"], "01 71 13", "Traffic Control", "sf"),
     # Division 33 – Utilities / Drainage
     (["culvert", "box culvert"], "33 42 13", "Storm Sewer", "ea"),
     (["storm drain", "storm sewer", "drainage pipe", "drain pipe", "catch basin", "inlet"], "33 41 00", "Storm Sewer", "lf"),
@@ -150,6 +150,36 @@ def normalize_unit(unit: str | None) -> str:
     return UNIT_ALIASES.get(compact, str(unit).strip())
 
 
+_EXPORT_UNIT_LABELS = {
+    "sf": "SQFT",
+    "sqft": "SQFT",
+    "sq ft": "SQFT",
+    "square foot": "SQFT",
+    "square feet": "SQFT",
+    "squarefoot": "SQFT",
+    "squarefeet": "SQFT",
+    "t": "TON",
+    "ton": "TON",
+    "tons": "TON",
+    "tonne": "TON",
+    "tonnes": "TON",
+}
+
+
+def format_export_unit(unit: str | None) -> str:
+    """USA pay-item labels for Excel/CSV: SQFT not SF, TON not T."""
+    raw = str(unit or "UNIT").strip()
+    if not raw:
+        return "UNIT"
+    key = re.sub(r"\s+", " ", raw.lower().replace("³", "3"))
+    if key in _EXPORT_UNIT_LABELS:
+        return _EXPORT_UNIT_LABELS[key]
+    compact = key.replace(".", "").replace(" ", "")
+    if compact in _EXPORT_UNIT_LABELS:
+        return _EXPORT_UNIT_LABELS[compact]
+    return raw.upper()
+
+
 def looks_like_csi(code: str | None) -> bool:
     if not code:
         return False
@@ -208,6 +238,8 @@ def map_csi(
 
 def enrich_quantity_item(item: dict[str, Any]) -> dict[str, Any]:
     """Attach CSI code / normalized unit / EOQ group onto a quantity dict."""
+    from app.services.traffic_control import looks_like_agency_bid_number
+
     out = dict(item)
     mapped = map_csi(
         description=str(out.get("description") or ""),
@@ -218,7 +250,9 @@ def enrich_quantity_item(item: dict[str, Any]) -> dict[str, Any]:
     out["unit"] = mapped["unit"]
     out["category"] = mapped["category"]
     out["csi_code"] = mapped["csi_code"]
-    if mapped["csi_code"] and (not out.get("item_code") or mapped["csi_match"] == "mapped"):
+    if looks_like_agency_bid_number(out.get("item_code")):
+        pass  # keep Bid Items / STD BID NO on item_code
+    elif mapped["csi_code"] and (not out.get("item_code") or mapped["csi_match"] == "mapped"):
         if not looks_like_csi(out.get("item_code")):
             out["item_code"] = mapped["csi_code"]
     elif mapped["item_code"]:

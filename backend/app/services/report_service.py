@@ -11,6 +11,7 @@ from app.models.cost import CostEstimate
 from app.models.document import Document
 from app.models.project import Project
 from app.models.report import Report
+from app.services.csi_mapper import format_export_unit
 
 
 def generate_project_reports(db: Session, project: Project, user_id: int) -> list[Report]:
@@ -57,7 +58,7 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
                         "item_number": i.item_number,
                         "description": i.description,
                         "quantity": float(i.quantity),
-                        "unit": i.unit,
+                        "unit": format_export_unit(i.unit),
                         "confidence": float(i.confidence) if i.confidence is not None else None,
                         "source": i.source_reference,
                         "status": i.status.value,
@@ -81,7 +82,7 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
                     {
                         "description": i.description,
                         "quantity": float(i.quantity),
-                        "unit": i.unit,
+                        "unit": format_export_unit(i.unit),
                     }
                     for i in (latest_eoq.items if latest_eoq else [])
                     if (i.category or "").lower() == "pavement"
@@ -98,7 +99,7 @@ def generate_project_reports(db: Session, project: Project, user_id: int) -> lis
                     {
                         "description": i.description,
                         "quantity": float(i.quantity),
-                        "unit": i.unit,
+                        "unit": format_export_unit(i.unit),
                     }
                     for i in (latest_eoq.items if latest_eoq else [])
                     if "earth" in (i.category or "").lower()

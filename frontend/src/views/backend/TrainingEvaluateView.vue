@@ -8,6 +8,7 @@ import {
   type TrainingRun,
 } from '@/api/training'
 import TrainingStageNav from '@/components/backend/TrainingStageNav.vue'
+import { formatUnit } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -453,7 +454,7 @@ async function runEvaluate() {
                       <div class="font-weight-medium">{{ row.original_description }}</div>
                       <div v-if="row.item_code" class="text-caption muted">{{ row.item_code }}</div>
                     </td>
-                    <td>{{ row.original_unit || '—' }}</td>
+                    <td>{{ formatUnit(row.original_unit) }}</td>
                     <td class="text-right">{{ formatQty(row.original_qty) }}</td>
                     <td class="text-caption">{{ row.autovad_description || '—' }}</td>
                     <td class="text-right">{{ formatQty(row.autovad_qty) }}</td>
@@ -494,7 +495,7 @@ async function runEvaluate() {
                     </td>
                     <td>{{ row.original_description }}</td>
                     <td class="text-caption">{{ row.autovad_description }}</td>
-                    <td>{{ row.original_unit }}</td>
+                    <td>{{ formatUnit(row.original_unit) }}</td>
                     <td class="text-right">{{ formatQty(row.original_qty) }}</td>
                     <td class="text-right">{{ formatQty(row.autovad_qty) }}</td>
                     <td class="text-right">{{ formatQty(row.qty_delta) }}</td>
@@ -532,7 +533,7 @@ async function runEvaluate() {
                       <div>{{ row.autovad_description }}</div>
                       <div class="text-caption muted">qty {{ formatQty(row.autovad_qty) }}</div>
                     </td>
-                    <td class="text-caption">{{ row.original_unit }} vs {{ row.autovad_unit }}</td>
+                    <td class="text-caption">{{ formatUnit(row.original_unit) }} vs {{ formatUnit(row.autovad_unit) }}</td>
                     <td>{{ row.similarity }}</td>
                     <td class="reason-cell">{{ row.reason }}</td>
                   </tr>
@@ -561,7 +562,7 @@ async function runEvaluate() {
                   <tr v-for="(row, idx) in missRows" :key="idx">
                     <td class="text-caption">{{ row.category || '—' }}</td>
                     <td class="font-weight-medium">{{ row.description || row.original_description }}</td>
-                    <td>{{ row.unit || row.original_unit }}</td>
+                    <td>{{ formatUnit(row.unit || row.original_unit) }}</td>
                     <td class="text-right">{{ formatQty(row.quantity ?? row.original_qty) }}</td>
                     <td class="text-caption">{{ row.nearest_autovad || row.autovad_description || '—' }}</td>
                     <td class="reason-cell">{{ row.reason || 'Missing from AutoVAD EOQ' }}</td>
@@ -595,7 +596,7 @@ async function runEvaluate() {
                       <div v-if="row.autovad_description" class="text-caption muted">{{ row.autovad_description }}</div>
                     </td>
                     <td class="text-caption">{{ row.category }}</td>
-                    <td>{{ row.unit }}</td>
+                    <td>{{ formatUnit(row.unit) }}</td>
                     <td class="text-right">{{ formatQty(row.expected_qty ?? row.original_qty) }}</td>
                     <td class="text-right">{{ formatQty(row.actual_qty ?? row.autovad_qty) }}</td>
                     <td class="text-right">{{ formatQty(row.delta ?? row.qty_delta) }}</td>
@@ -625,7 +626,7 @@ async function runEvaluate() {
                   <tr v-for="(row, idx) in extraRows" :key="idx">
                     <td class="font-weight-medium">{{ row.autovad_description || row.description }}</td>
                     <td class="text-caption">{{ row.category || '—' }}</td>
-                    <td>{{ row.autovad_unit || row.unit }}</td>
+                    <td>{{ formatUnit(row.autovad_unit || row.unit) }}</td>
                     <td class="text-right">{{ formatQty(row.autovad_qty ?? row.quantity) }}</td>
                     <td class="reason-cell">{{ row.reason || 'Not on original EOQ' }}</td>
                   </tr>

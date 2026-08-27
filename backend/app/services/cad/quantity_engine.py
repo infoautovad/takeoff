@@ -283,7 +283,7 @@ def classify_fitting(name: str, layer: str = "") -> tuple[str, str, str] | None:
         "g20-",
     )
     if any(k in text for k in sign_keys) and "signal" not in text and "marking" not in text:
-        return "Traffic Sign", "General / Traffic Control", "EA"
+        return "Traffic Sign", "Traffic Control", "EA"
     return None
 
 
@@ -691,9 +691,10 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
     items = _dedupe_prefer_sized(items)
     items = _collapse_count_duplicates(items)
 
-    from app.services.civil_estimator import expand_cad_takeoff
+    from app.services.civil_estimator import expand_cad_takeoff, extraction_has_bid_schedule
 
-    items = expand_cad_takeoff(extraction, items)
+    if not extraction_has_bid_schedule(extraction):
+        items = expand_cad_takeoff(extraction, items)
     items = [enrich_quantity_item(row) for row in items]
 
     from app.services.traffic_control import consolidate_traffic_control_signs

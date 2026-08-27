@@ -360,6 +360,119 @@ def test_excel_civil_sheets():
     assert wb["Fittings Bends Connections"]["F2"].value == "45°"
 
 
+def test_excel_status_colors_come_from_conditional_formatting():
+    """Dropdown Verified ↔ Engineer Review must change fill and font, not only text color."""
+    from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
+    from app.services.eoq_service import EOQ_EXPORT_HEADERS, export_eoq_excel
+
+    eoq = EOQ(
+        id=1,
+        project_id=1,
+        title="Status CF",
+        version=1,
+        status=EOQStatus.AI_GENERATED,
+        currency="USD",
+        notes="",
+    )
+    eoq.items = [
+        EOQItem(
+            id=1,
+            eoq_id=1,
+            item_number="1",
+            description="Needs review row",
+            unit="LS",
+            quantity=1,
+            status=EOQItemStatus.NEEDS_REVIEW,
+            confidence=80,
+        ),
+        EOQItem(
+            id=2,
+            eoq_id=1,
+            item_number="2",
+            description="Verified row",
+            unit="LS",
+            quantity=1,
+            status=EOQItemStatus.VERIFIED,
+            confidence=99,
+        ),
+    ]
+    wb = load_workbook(BytesIO(export_eoq_excel(eoq)))
+    ws = wb["Estimate Of Quantities"]
+    status_col = EOQ_EXPORT_HEADERS.index("Status") + 1
+    statuses = []
+    for row in ws.iter_rows(min_row=3, min_col=status_col, max_col=status_col):
+        cell = row[0]
+        if cell.value in {"Verified", "Engineer Review"}:
+            statuses.append(cell.value)
+            assert cell.fill.patternType is None, "baked-in fill blocks Excel from swapping the box color"
+    assert "Verified" in statuses
+    assert "Engineer Review" in statuses
+
+    rules = [rule for rules in ws.conditional_formatting._cf_rules.values() for rule in rules]
+    assert len(rules) >= 2
+    assert all(rule.dxf is not None and rule.dxf.fill is not None for rule in rules)
+    assert all(rule.dxf is not None and rule.dxf.font is not None for rule in rules)
+
+
+def test_excel_unit_column_shows_sqft_and_ton():
+    from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
+    from app.services.eoq_service import EOQ_EXPORT_HEADERS, export_eoq_excel
+
+    eoq = EOQ(
+        id=1,
+        project_id=1,
+        title="Units",
+        version=1,
+        status=EOQStatus.AI_GENERATED,
+        currency="USD",
+        notes="",
+    )
+    eoq.items = [
+        EOQItem(
+            id=1,
+            eoq_id=1,
+            item_number="1",
+            description="Traffic Control",
+            unit="SF",
+            quantity=624,
+            status=EOQItemStatus.NEEDS_REVIEW,
+            confidence=90,
+        ),
+        EOQItem(
+            id=2,
+            eoq_id=1,
+            item_number="2",
+            description="HMA Pavement",
+            unit="T",
+            quantity=12,
+            status=EOQItemStatus.NEEDS_REVIEW,
+            confidence=90,
+        ),
+        EOQItem(
+            id=3,
+            eoq_id=1,
+            item_number="3",
+            description="Water Main",
+            unit="LF",
+            quantity=100,
+            status=EOQItemStatus.NEEDS_REVIEW,
+            confidence=90,
+        ),
+    ]
+    wb = load_workbook(BytesIO(export_eoq_excel(eoq)))
+    ws = wb["Estimate Of Quantities"]
+    unit_col = EOQ_EXPORT_HEADERS.index("Unit") + 1
+    desc_col = EOQ_EXPORT_HEADERS.index("Item Description") + 1
+    by_desc = {}
+    for row in ws.iter_rows(min_row=3, max_col=max(unit_col, desc_col)):
+        desc = row[desc_col - 1].value
+        if desc in {"Traffic Control", "HMA Pavement", "Water Main"}:
+            by_desc[desc] = row[unit_col - 1].value
+    assert by_desc["Traffic Control"] == "SQFT"
+    assert by_desc["HMA Pavement"] == "TON"
+    assert by_desc["Water Main"] == "LF"
+
+
 def test_civil_raw_station_and_signed_offset():
     from app.services.cad.civil_location import (
         coerce_station,

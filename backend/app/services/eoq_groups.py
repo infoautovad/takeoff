@@ -7,13 +7,15 @@ show bold section headers with items underneath.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Iterable, TypeVar
 
 T = TypeVar("T")
 
 # Display order matches typical municipal EOQ / bid schedule flow.
 EOQ_GROUP_ORDER: list[str] = [
-    "General / Traffic Control",
+    "General",
+    "Traffic Control",
     "Removals",
     "Clearing & Grubbing",
     "Grading",
@@ -51,20 +53,13 @@ _GROUP_RULES: list[tuple[list[str], str]] = [
         ],
         "Removals",
     ),
-    # General / traffic
+    # General (LS / project setup) vs Traffic Control (signing / TTC devices)
     (
         [
             "mobilization",
             "demobilization",
-            "traffic control",
-            "temporary traffic",
-            "flagging",
-            "barricade",
-            "mailbox",
-            "changeable message",
-            "pcms",
-            "business sign",
-            "gravel access",
+            "tax on city",
+            "city furnished",
             "winter maintenance",
             "construction entrance",
             "field office",
@@ -77,7 +72,22 @@ _GROUP_RULES: list[tuple[list[str], str]] = [
             "allowance",
             "contingency",
         ],
-        "General / Traffic Control",
+        "General",
+    ),
+    (
+        [
+            "traffic control",
+            "temporary traffic",
+            "flagging",
+            "barricade",
+            "mailbox",
+            "changeable message",
+            "pcms",
+            "business sign",
+            "gravel access",
+            "channeliz",
+        ],
+        "Traffic Control",
     ),
     (
         ["clearing", "grubbing", "tree removal", "stump", "brush"],
@@ -364,7 +374,9 @@ _CATEGORY_ALIASES: dict[str, str] = {
     "demolition": "Removals",
     "site clearing": "Clearing & Grubbing",
     "geometry": "Miscellaneous",
-    "general": "General / Traffic Control",
+    "general": "General",
+    "traffic control": "Traffic Control",
+    "general / traffic control": "General",
     "bid schedule": "Miscellaneous",
     "unmapped takeoff": "Unmapped Takeoff",
 }
@@ -377,11 +389,15 @@ def resolve_eoq_group(
 ) -> str:
     """Return canonical EOQ section name for an EOQ line."""
     cat = (category or "").strip()
+    cat_low = cat.lower()
+    if cat_low in {"general / traffic control", "general/traffic control"}:
+        matched = _match_description(description or "")
+        return matched or "General"
     if cat:
-        alias = _CATEGORY_ALIASES.get(cat.lower())
+        alias = _CATEGORY_ALIASES.get(cat_low)
         if alias:
-            # Still refine Utilities/Drainage using description when possible
-            if alias in {"Watermain", "Storm Sewer", "Sanitary Sewer", "Miscellaneous"}:
+            # Still refine Utilities/Drainage/General using description when possible
+            if alias in {"Watermain", "Storm Sewer", "Sanitary Sewer", "Miscellaneous", "General"}:
                 refined = _match_description(description or "")
                 if refined:
                     return refined
@@ -407,6 +423,13 @@ def _match_description(text: str) -> str | None:
     return None
 
 
+def looks_like_mobilization(description: str | None) -> bool:
+    text = str(description or "").strip().lower()
+    if not text or "demobilization" in text:
+        return False
+    return bool(re.search(r"\bmobilization\b", text))
+
+
 def group_sort_key(group: str) -> tuple[int, str]:
     try:
         return (EOQ_GROUP_ORDER.index(group), group)
@@ -414,8 +437,19 @@ def group_sort_key(group: str) -> tuple[int, str]:
         return (len(EOQ_GROUP_ORDER), group)
 
 
-def group_items(items: Iterable[T], *, get_description, get_category) -> list[tuple[str, list[T]]]:
-    """Partition items into ordered (group_name, items) sections. Empty groups omitted."""
+def group_items(
+    items: Iterable[T],
+    *,
+    get_description,
+    get_category,
+    repeat_mobilization: bool = False,
+) -> list[tuple[str, list[T]]]:
+    """Partition items into ordered (group_name, items) sections. Empty groups omitted.
+
+    When repeat_mobilization is True (UI/Excel), Mobilization is listed under both
+    General and Traffic Control. Persistence should leave this False so the pay item
+    is stored once.
+    """
     buckets: dict[str, list[T]] = {}
     for item in items:
         group = resolve_eoq_group(
@@ -423,6 +457,22 @@ def group_items(items: Iterable[T], *, get_description, get_category) -> list[tu
             category=get_category(item),
         )
         buckets.setdefault(group, []).append(item)
+    if repeat_mobilization:
+        mobs = [
+            item
+            for rows in buckets.values()
+            for item in rows
+            if looks_like_mobilization(get_description(item))
+        ]
+        if mobs:
+            gen = buckets.setdefault("General", [])
+            for mob in reversed(mobs):
+                if mob not in gen:
+                    gen.insert(0, mob)
+            tc = buckets.setdefault("Traffic Control", [])
+            for mob in reversed(mobs):
+                if mob not in tc:
+                    tc.insert(0, mob)
     ordered: list[tuple[str, list[T]]] = []
     for name in EOQ_GROUP_ORDER:
         if name in buckets and buckets[name]:

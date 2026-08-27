@@ -19,6 +19,7 @@ from app.services.bid_service import (
 )
 from app.services.csi_mapper import list_csi_catalog
 from app.services.notifications import notify
+from app.schemas.units import PayUnit
 
 router = APIRouter()
 settings = get_settings()
@@ -32,7 +33,7 @@ class BidLineOut(BaseModel):
     csi_code: str | None
     item_code: str | None
     description: str
-    unit: str
+    unit: PayUnit
     default_rate: float | None
     sort_order: int
 

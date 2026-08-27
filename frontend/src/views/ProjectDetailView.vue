@@ -35,6 +35,7 @@ import {
   formatBytes,
   formatDate,
   formatQty,
+  formatUnit,
   isUnmappedEoqItem,
   standardBidItemNumber,
   statusColor,
@@ -1107,7 +1108,7 @@ const cadDocuments = computed(() =>
                   <tr v-for="q in m.quantities" :key="q.id">
                     <td>{{ q.description }}</td>
                     <td>{{ q.layer || '—' }}</td>
-                    <td>{{ q.unit }}</td>
+                    <td>{{ formatUnit(q.unit) }}</td>
                     <td>{{ formatQty(q.quantity) }}</td>
                     <td>{{ q.confidence != null ? `${q.confidence}%` : '—' }}</td>
                     <td class="text-caption">{{ q.calculation_method }}</td>
@@ -1222,7 +1223,7 @@ const cadDocuments = computed(() =>
                         <span class="eoq-section-count">{{ section.items.length }} item{{ section.items.length === 1 ? '' : 's' }}</span>
                       </td>
                     </tr>
-                    <tr v-for="item in section.items" :key="item.id" class="eoq-item-row">
+                    <tr v-for="item in section.items" :key="`${section.group}-${item.id}`" class="eoq-item-row">
                       <td class="text-center">{{ item.display_number }}</td>
                       <td class="text-caption font-weight-medium text-center">
                         {{ standardBidItemNumber(item) || '—' }}
@@ -1242,7 +1243,7 @@ const cadDocuments = computed(() =>
                           Unmapped takeoff
                         </v-chip>
                       </td>
-                      <td class="text-uppercase text-center">{{ (item.unit || 'UNIT').toUpperCase() }}</td>
+                      <td class="text-uppercase text-center">{{ formatUnit(item.unit) }}</td>
                       <td class="text-right">{{ formatQty(item.quantity) }}</td>
                       <td>{{ item.confidence != null ? `${Number(item.confidence).toFixed(2)}%` : '—' }}</td>
                       <td class="text-caption">
@@ -1372,7 +1373,7 @@ const cadDocuments = computed(() =>
                     <td>{{ ln.csi_code || '—' }}</td>
                     <td>{{ ln.item_code || '—' }}</td>
                     <td>{{ ln.description }}</td>
-                    <td>{{ ln.unit }}</td>
+                    <td>{{ formatUnit(ln.unit) }}</td>
                     <td>{{ ln.default_rate ?? '—' }}</td>
                   </tr>
                 </tbody>
@@ -1411,7 +1412,7 @@ const cadDocuments = computed(() =>
               <tbody>
                 <tr v-for="(row, idx) in estimates[0].breakdown.items" :key="idx">
                   <td>{{ row.description }}</td>
-                  <td>{{ formatQty(row.quantity) }} {{ row.unit }}</td>
+                  <td>{{ formatQty(row.quantity) }} {{ formatUnit(row.unit) }}</td>
                   <td>{{ row.rate ?? '—' }}</td>
                   <td>{{ row.amount ?? '—' }}</td>
                   <td>{{ row.matched ? 'Yes' : 'No' }}</td>

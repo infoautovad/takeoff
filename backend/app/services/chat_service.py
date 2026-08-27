@@ -18,6 +18,7 @@ from app.services.chat_agent import (
     help_text,
     plan_actions,
 )
+from app.services.csi_mapper import format_export_unit
 from app.services.processing import load_findings
 
 
@@ -49,7 +50,7 @@ def build_project_context(db: Session, project: Project) -> str:
         for item in findings.get("items") or []:
             parts.append(
                 "ITEM: "
-                f"{item.get('description')} = {item.get('quantity')} {item.get('unit')} "
+                f"{item.get('description')} = {item.get('quantity')} {format_export_unit(item.get('unit'))} "
                 f"(confidence={item.get('confidence')}, source={item.get('source_reference')})"
             )
         if analysis.extracted_text:
@@ -63,7 +64,7 @@ def build_project_context(db: Session, project: Project) -> str:
         for item in items:
             parts.append(
                 f"EOQ_ITEM {item.item_number}: CSI={item.csi_code or item.item_code or '—'} | "
-                f"{item.description} | {float(item.quantity):.2f} {item.unit} | "
+                f"{item.description} | {float(item.quantity):.2f} {format_export_unit(item.unit)} | "
                 f"source={item.source_reference} | confidence={item.confidence}"
             )
 

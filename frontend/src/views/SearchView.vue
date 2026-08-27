@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { globalSearch } from '@/api/search'
+import { formatUnit } from '@/utils/format'
 
 const router = useRouter()
 const q = ref('')
@@ -80,7 +81,7 @@ async function runSearch() {
             <div v-if="!result.eoq_items.length" class="muted">No matches</div>
             <div v-for="i in result.eoq_items" :key="i.id" class="result-row static">
               <div class="font-weight-medium">{{ i.description }}</div>
-              <div class="text-caption muted">{{ i.quantity }} {{ i.unit }} · {{ i.category || 'General' }}</div>
+              <div class="text-caption muted">{{ i.quantity }} {{ formatUnit(i.unit) }} · {{ i.category || 'General' }}</div>
             </div>
           </div>
         </v-col>

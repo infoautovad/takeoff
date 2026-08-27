@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.eoq import EOQ
 from app.models.cost import CostEstimate, SORItem
+from app.services.csi_mapper import format_export_unit
 
 
 def clear_sor(db: Session, project_id: int) -> None:
@@ -110,7 +111,7 @@ def generate_cost_estimate(db: Session, *, project_id: int, eoq_id: int, user_id
                 "eoq_item_id": item.id,
                 "description": item.description,
                 "category": item.category,
-                "unit": item.unit,
+                "unit": format_export_unit(item.unit),
                 "quantity": float(item.quantity),
                 "rate": float(rate) if rate is not None else None,
                 "amount": float(amount) if amount is not None else None,

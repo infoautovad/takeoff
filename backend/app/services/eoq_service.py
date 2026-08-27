@@ -5,9 +5,10 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO, StringIO
 import csv
+from typing import Any
 
 from openpyxl import Workbook
-from openpyxl.formatting.rule import FormulaRule
+from openpyxl.formatting.rule import CellIsRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
@@ -19,8 +20,9 @@ from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
 from app.models.cad import CadModel
 from app.models.project import Project
 from app.services.bid_service import build_eoq_items_from_template, get_active_template
-from app.services.eoq_groups import assign_group_category, group_items
-from app.services.csi_mapper import enrich_quantity_item
+from app.services.eoq_groups import assign_group_category, group_items, looks_like_mobilization
+from app.services.csi_mapper import enrich_quantity_item, format_export_unit
+from app.services.item_combine import combine_similar_pay_items
 from app.services.processing import load_findings
 
 # AutoVAD standard: confidence below this → Engineer Review
@@ -51,6 +53,63 @@ def _qty2(value: Decimal | float | None) -> Decimal:
     return Decimal(str(value or 0)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def ensure_mobilization_item(
+    items: list[dict[str, Any]],
+    *,
+    template_lines: list | None = None,
+) -> list[dict[str, Any]]:
+    """Every project EOQ includes Mobilization as 1 LS under General items."""
+    from app.services.traffic_control import looks_like_agency_bid_number
+
+    found: list[dict[str, Any]] = []
+    rest: list[dict[str, Any]] = []
+    for item in items:
+        if looks_like_mobilization(str(item.get("description") or "")):
+            found.append(dict(item))
+        else:
+            rest.append(item)
+
+    base: dict[str, Any] = dict(found[0]) if found else {}
+    for item in found:
+        if looks_like_agency_bid_number(item.get("item_code")):
+            base = dict(item)
+            break
+
+    if not found and template_lines:
+        for line in template_lines:
+            if looks_like_mobilization(getattr(line, "description", None)):
+                base = {
+                    "item_code": getattr(line, "item_code", None),
+                    "csi_code": getattr(line, "csi_code", None),
+                    "description": getattr(line, "description", None) or "Mobilization",
+                    "bid_template_line_id": getattr(line, "id", None),
+                    "bid_match_confidence": 100.0,
+                    "bid_match_method": "standard_pay_item",
+                    "rate": getattr(line, "default_rate", None),
+                    "source_reference": f"Bid line {getattr(line, 'line_number', '')}".strip(),
+                }
+                break
+
+    mob = enrich_quantity_item(
+        {
+            **base,
+            "description": "Mobilization",
+            "unit": "LS",
+            "quantity": 1,
+            "category": "General",
+            "calculation_method": base.get("calculation_method")
+            or "Standard lump-sum pay item — 1 LS on every project",
+            "source_reference": base.get("source_reference") or "General items",
+            "confidence": max(float(base.get("confidence") or 0), 97.0),
+        }
+    )
+    mob["description"] = "Mobilization"
+    mob["unit"] = format_export_unit("LS")
+    mob["quantity"] = 1
+    mob["category"] = "General"
+    return [assign_group_category(mob), *rest]
+
+
 def standard_bid_item_number(item: EOQItem) -> str:
     """Agency/state bid code from template; empty when AutoVAD default / unmapped."""
     if item.bid_template_line_id and item.item_code:
@@ -75,29 +134,6 @@ def resolve_item_status(confidence: float | None, *, force_review: bool = False)
     if confidence is not None and float(confidence) >= CONFIDENCE_VERIFIED_THRESHOLD:
         return EOQItemStatus.VERIFIED
     return EOQItemStatus.NEEDS_REVIEW
-
-
-def _merge_item(merged: dict[str, dict], item: dict) -> None:
-    item = enrich_quantity_item(item)
-    code_key = (item.get("csi_code") or item.get("item_code") or "").strip().lower()
-    key = f"{code_key}|{(item.get('description') or '').strip().lower()}|{(item.get('unit') or '').strip().lower()}"
-    if not item.get("description"):
-        return
-    if key not in merged:
-        merged[key] = dict(item)
-        return
-    existing = merged[key]
-    try:
-        existing_qty = Decimal(str(existing.get("quantity") or 0))
-        new_qty = Decimal(str(item.get("quantity") or 0))
-        existing_conf = Decimal(str(existing.get("confidence") or 0))
-        new_conf = Decimal(str(item.get("confidence") or 0))
-    except Exception:
-        return
-    if new_conf > existing_conf:
-        merged[key] = dict(item)
-    elif new_conf == existing_conf and new_qty > existing_qty:
-        existing["quantity"] = float(new_qty)
 
 
 def generate_eoq_for_project(
@@ -138,7 +174,7 @@ def generate_eoq_for_project(
         if c.quantities_json and str(c.quantities_json).strip() not in {"", "[]", "null"}
     }
 
-    merged: dict[str, dict] = {}
+    collected: list[dict] = []
     for analysis in analyses:
         if analysis.document_id in cad_doc_ids:
             continue
@@ -146,7 +182,7 @@ def generate_eoq_for_project(
         for item in findings.get("items") or []:
             payload = dict(item)
             payload.setdefault("source_document_id", analysis.document_id)
-            _merge_item(merged, payload)
+            collected.append(payload)
 
     for cad in cad_models:
         if not cad.quantities_json:
@@ -159,9 +195,9 @@ def generate_eoq_for_project(
             payload = dict(item)
             payload["source_document_id"] = cad.document_id
             payload["calculation_method"] = payload.get("calculation_method") or "CAD geometry takeoff"
-            _merge_item(merged, payload)
+            collected.append(payload)
 
-    extracted = list(merged.values())
+    extracted = combine_similar_pay_items(collected)
 
     if not extracted:
         raise ValueError(
@@ -197,6 +233,11 @@ def generate_eoq_for_project(
             " Generated with AutoVAD default CSI schedule (no bid template uploaded)."
             " Upload a bid list so Generate Estimate Of Quantities maps only the bid items needed for this project."
         )
+
+    items_list = ensure_mobilization_item(
+        items_list,
+        template_lines=list(active.lines) if has_template else None,
+    )
 
     from app.models.document import Document
 
@@ -264,7 +305,7 @@ def generate_eoq_for_project(
         qty = _qty2(grouped.get("quantity"))
         rate = _money2(grouped["rate"]) if grouped.get("rate") is not None else None
         amount = _money2(qty * rate) if rate is not None else None
-        unit = str(grouped.get("unit") or "UNIT").strip().upper() or "UNIT"
+        unit = format_export_unit(grouped.get("unit"))
         db.add(
             EOQItem(
                 eoq_id=eoq.id,
@@ -326,7 +367,7 @@ def update_eoq_item(
         if cleaned:
             item.description = cleaned
     if unit is not None:
-        item.unit = unit.strip().upper() or item.unit
+        item.unit = format_export_unit(unit) or item.unit
     if item_code is not None:
         item.item_code = item_code.strip() or None
     if quantity is not None:
@@ -362,6 +403,7 @@ def _grouped_eoq_items(eoq: EOQ) -> list[tuple[str, list[EOQItem]]]:
         items,
         get_description=lambda i: i.description,
         get_category=lambda i: i.category,
+        repeat_mobilization=True,
     )
 
 
@@ -422,7 +464,7 @@ def export_eoq_csv(eoq: EOQ) -> bytes:
                     group_name,
                     standard_bid_item_number(item),
                     item.description,
-                    (item.unit or "UNIT").upper(),
+                    format_export_unit(item.unit),
                     f"{qty:.2f}",
                     f"{cost:.2f}" if cost is not None else "",
                     f"{total:.2f}" if total is not None else "",
@@ -500,7 +542,7 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
             ws.cell(row_idx, 1, serial).alignment = Alignment(horizontal="center")
             ws.cell(row_idx, 2, standard_bid_item_number(item)).alignment = Alignment(horizontal="center")
             ws.cell(row_idx, 3, item.description).alignment = Alignment(horizontal="left", wrap_text=True)
-            ws.cell(row_idx, 4, (item.unit or "UNIT").upper()).alignment = Alignment(horizontal="center")
+            ws.cell(row_idx, 4, format_export_unit(item.unit)).alignment = Alignment(horizontal="center")
 
             qty_cell = ws.cell(row_idx, 5, qty)
             qty_cell.number_format = "0.00"
@@ -522,12 +564,9 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
                 ws.cell(row_idx, 8, "")
 
             status_cell = ws.cell(row_idx, 9, status)
-            if status == "Verified":
-                status_cell.font = Font(color="006100", bold=True)
-                status_cell.fill = PatternFill("solid", fgColor="C6EFCE")
-            else:
-                status_cell.font = Font(color="9C0006", bold=True)
-                status_cell.fill = PatternFill("solid", fgColor="FFC7CE")
+            status_cell.alignment = Alignment(horizontal="center")
+            # Do not bake fill/font here. Direct fill stays put when the dropdown
+            # changes; Excel only swaps both colors if they come from CF.
 
             ws.cell(row_idx, 10, item.source_reference or "")
             ws.cell(row_idx, 11, item.calculation_method or "")
@@ -553,17 +592,31 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
         status_dv.add(f"I3:I{last_row}")
         ws.add_data_validation(status_dv)
 
-        green_fill = PatternFill("solid", fgColor="C6EFCE")
+        # CF owns both fill and font so changing Verified ↔ Engineer Review updates the box.
+        green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
         green_font = Font(color="006100", bold=True)
-        red_fill = PatternFill("solid", fgColor="FFC7CE")
+        red_fill = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
         red_font = Font(color="9C0006", bold=True)
+        status_range = f"I3:I{last_row}"
         ws.conditional_formatting.add(
-            f"I3:I{last_row}",
-            FormulaRule(formula=['$I3="Verified"'], fill=green_fill, font=green_font),
+            status_range,
+            CellIsRule(
+                operator="equal",
+                formula=['"Verified"'],
+                fill=green_fill,
+                font=green_font,
+                stopIfTrue=True,
+            ),
         )
         ws.conditional_formatting.add(
-            f"I3:I{last_row}",
-            FormulaRule(formula=['$I3="Engineer Review"'], fill=red_fill, font=red_font),
+            status_range,
+            CellIsRule(
+                operator="equal",
+                formula=['"Engineer Review"'],
+                fill=red_fill,
+                font=red_font,
+                stopIfTrue=True,
+            ),
         )
 
     widths = [12, 22, 42, 10, 12, 12, 12, 14, 16, 28, 28]
@@ -774,7 +827,7 @@ def _append_utility_stationing_sheets(
             vals = [
                 row.get("bid_item") or "",
                 row.get("description") or "",
-                row.get("unit") or "",
+                format_export_unit(row.get("unit")) if row.get("unit") else "",
                 float(row.get("quantity") or 0),
                 row.get("detail_source") or "",
                 row.get("rollup_note") or "",

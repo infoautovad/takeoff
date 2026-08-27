@@ -15,6 +15,7 @@ from app.models.user import User
 from app.services.activity import log_activity
 from app.services.cost_service import generate_cost_estimate, import_sor_file, list_sor
 from app.services.notifications import notify
+from app.schemas.units import PayUnit
 
 router = APIRouter()
 
@@ -26,7 +27,7 @@ class SOROut(BaseModel):
     project_id: int
     item_code: str | None
     description: str
-    unit: str
+    unit: PayUnit
     rate: float
 
 

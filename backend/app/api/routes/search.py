@@ -8,6 +8,7 @@ from app.models.eoq import EOQ, EOQItem
 from app.models.document import Document
 from app.models.project import Project, ProjectMember
 from app.models.user import User
+from app.services.csi_mapper import format_export_unit
 
 router = APIRouter()
 
@@ -55,7 +56,7 @@ def global_search(
                 "eoq_id": i.eoq_id,
                 "description": i.description,
                 "quantity": float(i.quantity),
-                "unit": i.unit,
+                "unit": format_export_unit(i.unit),
                 "category": i.category,
             }
             for i in items

@@ -13,6 +13,7 @@ from app.models.document import Document, ProcessingStatus
 from app.models.project import Project, ProjectMember, ProjectStatus
 from app.models.user import User
 from app.schemas.dashboard import AttentionItem, DashboardStats, WeekSnapshot
+from app.services.csi_mapper import format_export_unit
 
 router = APIRouter()
 
@@ -355,7 +356,7 @@ def _build_analytics_snapshot(db: Session, project_ids: list[int], since: dateti
         {
             "name": k,
             "quantity": round(v, 2),
-            "unit": material_units.get(k, ""),
+            "unit": format_export_unit(u) if (u := material_units.get(k, "")) else "",
             "share": round((v / total_qty) * 100, 1),
         }
         for k, v in sorted(material_totals.items(), key=lambda x: x[1], reverse=True)[:20]

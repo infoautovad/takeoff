@@ -94,8 +94,10 @@ def test_eoq_group_sections():
     assert resolve_eoq_group(description="Sanitary Sewer Pipe 8 Inch") == "Sanitary Sewer"
     assert resolve_eoq_group(description="Aggregate Base Course") == "Surfacing"
     assert resolve_eoq_group(description="Silt Fence") == "Erosion Control / Restoration"
-    assert resolve_eoq_group(description="Temporary Mailbox") == "General / Traffic Control"
-    assert resolve_eoq_group(description="Type 3 Barricade, 8' Double Sided") == "General / Traffic Control"
+    assert resolve_eoq_group(description="Temporary Mailbox") == "Traffic Control"
+    assert resolve_eoq_group(description="Type 3 Barricade, 8' Double Sided") == "Traffic Control"
+    assert resolve_eoq_group(description="Mobilization") == "General"
+    assert resolve_eoq_group(description="Winter Maintenance") == "General"
     assert resolve_eoq_group(description="Dam Embankment Fill") == "Dams & Reservoirs"
     assert resolve_eoq_group(description="Brickwork") == "Building"
 
@@ -110,12 +112,107 @@ def test_eoq_group_sections():
         get_category=lambda i: i.get("category"),
     )
     names = [s[0] for s in sections]
-    assert names.index("General / Traffic Control") < names.index("Removals")
+    assert names.index("General") < names.index("Removals")
     assert names.index("Removals") < names.index("Watermain")
+
+
+def test_ensure_mobilization_item_always_one_ls_under_general():
+    from app.services.eoq_groups import group_items, looks_like_mobilization, resolve_eoq_group
+    from app.services.eoq_service import ensure_mobilization_item
+
+    assert looks_like_mobilization("Mobilization")
+    assert not looks_like_mobilization("Demobilization")
+
+    out = ensure_mobilization_item(
+        [{"description": "8-Inch Water Main", "unit": "LF", "quantity": 100}]
+    )
+    mob = [i for i in out if i["description"] == "Mobilization"]
+    assert len(mob) == 1
+    assert mob[0]["unit"] == "LS"
+    assert float(mob[0]["quantity"]) == 1
+    assert resolve_eoq_group(description=mob[0]["description"], category=mob[0].get("category")) == "General"
+    assert out[0]["description"] == "Mobilization"
+
+    mixed = ensure_mobilization_item(
+        [
+            {"description": "Traffic Control", "unit": "SQFT", "quantity": 624},
+            {"description": "8-Inch Water Main", "unit": "LF", "quantity": 100},
+        ]
+    )
+    sections = group_items(
+        mixed,
+        get_description=lambda i: i["description"],
+        get_category=lambda i: i.get("category"),
+        repeat_mobilization=True,
+    )
+    by_name = {name: rows for name, rows in sections}
+    assert "General" in by_name and "Traffic Control" in by_name
+    assert any(i["description"] == "Mobilization" for i in by_name["General"])
+    assert any(i["description"] == "Mobilization" for i in by_name["Traffic Control"])
+    assert any(i["description"] == "Traffic Control" for i in by_name["Traffic Control"])
+
+
+def test_ensure_mobilization_collapses_extracted_row_to_one_ls():
+    from app.services.eoq_service import ensure_mobilization_item
+
+    out = ensure_mobilization_item(
+        [
+            {
+                "description": "Mobilization",
+                "unit": "LS",
+                "quantity": 3,
+                "item_code": "9.0010",
+            },
+            {"description": "HMA", "unit": "TON", "quantity": 12},
+        ]
+    )
+    mobs = [i for i in out if "mobilization" in str(i["description"]).lower()]
+    assert len(mobs) == 1
+    assert mobs[0]["quantity"] == 1
+    assert mobs[0]["unit"] == "LS"
+    assert mobs[0]["item_code"] == "9.0010"
 
 
 def test_normalize_unit_lf():
     assert normalize_unit("LF") in {"LF", "lf"} or str(normalize_unit("linear feet")).upper() in {"LF", "M"}
+
+
+def test_format_export_unit_sqft_and_ton():
+    from app.services.csi_mapper import format_export_unit
+    from app.schemas.eoq import EOQItemOut
+    from app.models.eoq import EOQItemStatus
+    from datetime import datetime, timezone
+
+    assert format_export_unit("sf") == "SQFT"
+    assert format_export_unit("SF") == "SQFT"
+    assert format_export_unit("SqFt") == "SQFT"
+    assert format_export_unit("t") == "TON"
+    assert format_export_unit("T") == "TON"
+    assert format_export_unit("ton") == "TON"
+    assert format_export_unit("LF") == "LF"
+
+    now = datetime.now(timezone.utc)
+    base = dict(
+        id=1,
+        eoq_id=1,
+        item_number="1",
+        item_code=None,
+        description="Traffic Control",
+        category=None,
+        quantity=1,
+        rate=None,
+        amount=None,
+        source_document_id=None,
+        source_page=None,
+        source_reference=None,
+        calculation_method=None,
+        confidence=None,
+        status=EOQItemStatus.NEEDS_REVIEW,
+        created_at=now,
+        updated_at=now,
+    )
+    assert EOQItemOut.model_validate({**base, "unit": "SF"}).unit == "SQFT"
+    assert EOQItemOut.model_validate({**base, "unit": "T"}).unit == "TON"
 
 
 def test_parse_expected_items_roundtrip():

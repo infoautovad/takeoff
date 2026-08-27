@@ -568,7 +568,7 @@ def consolidate_traffic_control_signs(
             if _unit_is_sqft(existing_tc.get("unit")):
                 existing_tc = dict(existing_tc)
                 existing_tc["unit"] = "SqFt"
-                existing_tc["category"] = existing_tc.get("category") or "General / Traffic Control"
+                existing_tc["category"] = existing_tc.get("category") or "Traffic Control"
                 kept.append(existing_tc)
                 try:
                     meta["total_sqft"] = round(float(existing_tc.get("quantity") or 0), 2)
@@ -625,7 +625,7 @@ def consolidate_traffic_control_signs(
             if looks_like_agency_bid_number((existing_tc or {}).get("item_code"))
             else (existing_tc or {}).get("item_code"),
             "description": "Traffic Control",
-            "category": "General / Traffic Control",
+            "category": "Traffic Control",
             "unit": "SqFt",
             "quantity": round(total_sqft, 2),
             "source_document_id": src_doc,

@@ -18,6 +18,8 @@ import re
 from collections import defaultdict
 from typing import Any
 
+from app.services.incidental import cad_notes_make_trench_incidental, extraction_should_skip
+
 # --- Project type -----------------------------------------------------------
 
 _TYPE_HINTS: list[tuple[str, tuple[str, ...]]] = [
@@ -61,26 +63,26 @@ _STA_RANGE = re.compile(
 )
 
 _BUILDING = [
-    ("Brickwork", "Building", "CY", r"\bbrick(?:work)?\b.*?(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy|cu\.?\s*yd)"),
-    ("RCC Concrete", "Building", "CY", r"\b(?:rcc|reinforced\s*concrete)\b.*?(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Foundation Concrete", "Building", "CY", r"\bfoundation(?:s)?\b.*?(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Doors", "Building", "EA", r"\bdoors?\b.*?(\d{1,4})\s*(nos?|ea|each)"),
-    ("Windows", "Building", "EA", r"\bwindows?\b.*?(\d{1,4})\s*(nos?|ea|each)"),
-    ("Plastering", "Building", "SF", r"\bplaster(?:ing)?\b.*?(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
-    ("Flooring", "Building", "SF", r"\bfloor(?:ing)?\b.*?(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
-    ("Roofing", "Building", "SF", r"\broof(?:ing)?\b.*?(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
-    ("Formwork", "Building", "SF", r"\bformwork\b.*?(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
-    ("Painting", "Building", "SF", r"\bpaint(?:ing)?\b.*?(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
+    ("Brickwork", "Building", "CY", r"\bbrick(?:work)?\b[^\n.;\d]{0,40}(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy|cu\.?\s*yd)"),
+    ("RCC Concrete", "Building", "CY", r"\b(?:rcc|reinforced\s*concrete)\b[^\n.;\d]{0,40}(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Foundation Concrete", "Building", "CY", r"\bfoundation(?:s)?\b[^\n.;\d]{0,40}(\d{1,6}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Doors", "Building", "EA", r"\bdoors?\b[^\n.;\d]{0,40}(\d{1,4})\s*(nos?|ea|each)"),
+    ("Windows", "Building", "EA", r"\bwindows?\b[^\n.;\d]{0,40}(\d{1,4})\s*(nos?|ea|each)"),
+    ("Plastering", "Building", "SF", r"\bplaster(?:ing)?\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
+    ("Flooring", "Building", "SF", r"\bfloor(?:ing)?\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
+    ("Roofing", "Building", "SF", r"\broof(?:ing)?\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
+    ("Formwork", "Building", "SF", r"\bformwork\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
+    ("Painting", "Building", "SF", r"\bpaint(?:ing)?\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m2|m²|sf|sft)"),
 ]
 _DAM = [
-    ("Dam Embankment Fill", "Dams & Reservoirs", "CY", r"\b(?:dam\s+)?embankment\b.*?(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Dam Excavation", "Dams & Reservoirs", "CY", r"\b(?:dam|foundation)\s*excavation\b.*?(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Spillway Concrete", "Dams & Reservoirs", "CY", r"\bspillway\b.*?(\d{1,7}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Riprap", "Dams & Reservoirs", "CY", r"\briprap\b.*?(\d{1,7}(?:\.\d+)?)\s*(m3|m³|cy|ton)"),
-    ("Reservoir Lining", "Dams & Reservoirs", "SF", r"\b(?:reservoir|pond|tank)\s*lin(?:ing|er)\b.*?(\d{1,8}(?:\.\d+)?)\s*(m2|m²|sf)"),
-    ("Cutoff Trench", "Dams & Reservoirs", "CY", r"\bcutoff(?:\s+trench)?\b.*?(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Filter / Drain Material", "Dams & Reservoirs", "CY", r"\b(?:filter\s*(?:material|zone)|chimney\s*drain)\b.*?(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
-    ("Reservoir Capacity", "Dams & Reservoirs", "MGAL", r"\bcapacit(?:y|ies)\b.*?(\d{1,6}(?:\.\d+)?)\s*(mgal|million\s*gal|acre[- ]?ft|ml)"),
+    ("Dam Embankment Fill", "Dams & Reservoirs", "CY", r"\b(?:dam\s+)?embankment\b[^\n.;\d]{0,40}(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Dam Excavation", "Dams & Reservoirs", "CY", r"\b(?:dam|foundation)\s*excavation\b[^\n.;\d]{0,40}(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Spillway Concrete", "Dams & Reservoirs", "CY", r"\bspillway\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Riprap", "Dams & Reservoirs", "CY", r"\briprap\b[^\n.;\d]{0,40}(\d{1,7}(?:\.\d+)?)\s*(m3|m³|cy|ton)"),
+    ("Reservoir Lining", "Dams & Reservoirs", "SF", r"\b(?:reservoir|pond|tank)\s*lin(?:ing|er)\b[^\n.;\d]{0,40}(\d{1,8}(?:\.\d+)?)\s*(m2|m²|sf)"),
+    ("Cutoff Trench", "Dams & Reservoirs", "CY", r"\bcutoff(?:\s+trench)?\b[^\n.;\d]{0,40}(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Filter / Drain Material", "Dams & Reservoirs", "CY", r"\b(?:filter\s*(?:material|zone)|chimney\s*drain)\b[^\n.;\d]{0,40}(\d{1,8}(?:\.\d+)?)\s*(m3|m³|cy)"),
+    ("Reservoir Capacity", "Dams & Reservoirs", "MGAL", r"\bcapacit(?:y|ies)\b[^\n.;\d]{0,40}(\d{1,6}(?:\.\d+)?)\s*(mgal|million\s*gal|acre[- ]?ft|ml)"),
 ]
 _SHOULDER = re.compile(
     r"shoulder[^\d]{0,20}(?P<w>\d+(?:\.\d+)?)\s*(?P<u>m|ft|'|in)?",
@@ -212,20 +214,25 @@ def items_from_design_text(text: str, *, filename: str = "plan") -> list[dict[st
 
     combined = _BUILDING + _DAM
     for desc, cat, unit, pat in combined:
-        m = re.search(pat, text, re.I | re.S)
-        if not m:
+        qty_val: float | None = None
+        raw_u = unit
+        for m in re.finditer(pat, text, re.I | re.S):
+            if extraction_should_skip(desc, text, m.start()):
+                continue
+            try:
+                qty_val = float(str(m.group(1)).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            raw_u = (m.group(2) if m.lastindex and m.lastindex >= 2 else unit) or unit
+            break
+        if qty_val is None:
             continue
-        try:
-            qty = float(str(m.group(1)).replace(",", ""))
-        except (TypeError, ValueError):
-            continue
-        raw_u = (m.group(2) if m.lastindex and m.lastindex >= 2 else unit) or unit
         items.append(
             _qty(
                 description=desc,
                 category=cat,
                 unit=_norm_unit(raw_u, unit),
-                quantity=qty,
+                quantity=qty_val,
                 method=f"Design text quantity on '{filename}'",
                 confidence=80.0,
             )
@@ -436,6 +443,24 @@ def _qty(description: str, category: str, unit: str, quantity: float, method: st
     }
 
 
+def extraction_has_bid_schedule(extraction: dict[str, Any]) -> bool:
+    """True when CAD text includes a Bid Items / EOQ table (don't invent trench extras)."""
+    parts = [str(extraction.get("filename") or "")]
+    for t in extraction.get("texts") or []:
+        parts.append(str(t.get("text") or ""))
+    blob = " ".join(parts).lower()
+    return any(
+        k in blob
+        for k in (
+            "estimate of quantities",
+            "bid items",
+            "std bid no",
+            "approx. quantity",
+            "for bidding purposes",
+        )
+    )
+
+
 def merge_estimator_items(base: list[dict[str, Any]], extra: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Append extras unless the same description+unit already exists (don't double-count)."""
     seen = {(str(i.get("description") or "").strip().lower(), str(i.get("unit") or "").upper()) for i in base}
@@ -450,8 +475,10 @@ def merge_estimator_items(base: list[dict[str, Any]], extra: list[dict[str, Any]
 
 
 def expand_cad_takeoff(extraction: dict[str, Any], items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    extra = trench_items_from_pipes(extraction)
-    extra.extend(items_from_civil_layers(extraction))
     texts = " ".join(str(t.get("text") or "") for t in (extraction.get("texts") or [])[:400])
+    extra: list[dict[str, Any]] = []
+    if not cad_notes_make_trench_incidental(texts):
+        extra.extend(trench_items_from_pipes(extraction))
+    extra.extend(items_from_civil_layers(extraction))
     extra.extend(items_from_design_text(texts, filename="CAD text"))
     return merge_estimator_items(items, extra)

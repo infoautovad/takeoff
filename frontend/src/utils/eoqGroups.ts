@@ -1,7 +1,8 @@
 /** Municipal Estimate-of-Quantities section grouping for EOQ UI. */
 
 export const EOQ_GROUP_ORDER = [
-  'General / Traffic Control',
+  'General',
+  'Traffic Control',
   'Removals',
   'Clearing & Grubbing',
   'Grading',
@@ -35,7 +36,9 @@ const CATEGORY_ALIASES: Record<string, string> = {
   demolition: 'Removals',
   'site clearing': 'Clearing & Grubbing',
   geometry: 'Miscellaneous',
-  general: 'General / Traffic Control',
+  general: 'General',
+  'traffic control': 'Traffic Control',
+  'general / traffic control': 'General',
   'bid schedule': 'Miscellaneous',
   'unmapped takeoff': 'Unmapped Takeoff',
 }
@@ -49,14 +52,8 @@ const GROUP_RULES: Array<{ keys: string[]; group: string }> = [
     keys: [
       'mobilization',
       'demobilization',
-      'traffic control',
-      'temporary traffic',
-      'flagging',
-      'barricade',
-      'mailbox',
-      'changeable message',
-      'business sign',
-      'gravel access',
+      'tax on city',
+      'city furnished',
       'winter maintenance',
       'construction entrance',
       'field office',
@@ -66,7 +63,21 @@ const GROUP_RULES: Array<{ keys: string[]; group: string }> = [
       'permit',
       'allowance',
     ],
-    group: 'General / Traffic Control',
+    group: 'General',
+  },
+  {
+    keys: [
+      'traffic control',
+      'temporary traffic',
+      'flagging',
+      'barricade',
+      'mailbox',
+      'changeable message',
+      'business sign',
+      'gravel access',
+      'channeliz',
+    ],
+    group: 'Traffic Control',
   },
   { keys: ['clearing', 'grubbing', 'tree removal', 'stump', 'brush'], group: 'Clearing & Grubbing' },
   {
@@ -230,10 +241,14 @@ function matchDescription(text: string): string | null {
 
 export function resolveEoqGroup(description?: string | null, category?: string | null): string {
   const cat = (category || '').trim()
+  const catLow = cat.toLowerCase()
+  if (catLow === 'general / traffic control' || catLow === 'general/traffic control') {
+    return matchDescription(description || '') || 'General'
+  }
   if (cat) {
-    const alias = CATEGORY_ALIASES[cat.toLowerCase()]
+    const alias = CATEGORY_ALIASES[catLow]
     if (alias) {
-      if (['Watermain', 'Storm Sewer', 'Sanitary Sewer', 'Miscellaneous'].includes(alias)) {
+      if (['Watermain', 'Storm Sewer', 'Sanitary Sewer', 'Miscellaneous', 'General'].includes(alias)) {
         const refined = matchDescription(description || '')
         if (refined) return refined
       }
@@ -243,8 +258,14 @@ export function resolveEoqGroup(description?: string | null, category?: string |
   }
   const matched = matchDescription(`${description || ''} ${category || ''}`)
   if (matched) return matched
-  if (cat.toLowerCase() === 'unmapped takeoff') return 'Unmapped Takeoff'
+  if (catLow === 'unmapped takeoff') return 'Unmapped Takeoff'
   return 'Miscellaneous'
+}
+
+function looksLikeMobilization(description?: string | null): boolean {
+  const text = String(description || '').trim().toLowerCase()
+  if (!text || text.includes('demobilization')) return false
+  return /\bmobilization\b/.test(text)
 }
 
 export interface EoqGroupSection<T> {
@@ -261,6 +282,19 @@ export function groupEoqItems<T extends { description?: string | null; category?
     const list = buckets.get(group) || []
     list.push(item)
     buckets.set(group, list)
+  }
+  const mobs = items.filter((item) => looksLikeMobilization(item.description))
+  if (mobs.length) {
+    const gen = buckets.get('General') || []
+    for (const mob of [...mobs].reverse()) {
+      if (!gen.includes(mob)) gen.unshift(mob)
+    }
+    buckets.set('General', gen)
+    const tc = buckets.get('Traffic Control') || []
+    for (const mob of [...mobs].reverse()) {
+      if (!tc.includes(mob)) tc.unshift(mob)
+    }
+    buckets.set('Traffic Control', tc)
   }
   const ordered: EoqGroupSection<T & { display_number: number }>[] = []
   let serial = 1

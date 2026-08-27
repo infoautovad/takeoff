@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { fetchAnalytics } from '@/api/dashboard'
 import { useProjectsStore } from '@/stores/projects'
-import { formatDate, formatQty } from '@/utils/format'
+import { formatDate, formatQty, formatUnit } from '@/utils/format'
 import type { AnalyticsSnapshot, ProjectStatus } from '@/types'
 
 type RangeKey = '7d' | '30d' | 'all'
@@ -258,7 +258,7 @@ function exportCsv() {
   lines.push('')
   lines.push('Material,Quantity,Unit,Share %')
   for (const m of sortedMaterials.value) {
-    lines.push(`"${m.name.replace(/"/g, '""')}",${m.quantity},${m.unit || ''},${m.share ?? ''}`)
+    lines.push(`"${m.name.replace(/"/g, '""')}",${m.quantity},${formatUnit(m.unit, '')},${m.share ?? ''}`)
   }
   lines.push('')
   lines.push('Category,Quantity,Share %')
@@ -297,7 +297,7 @@ function exportPdf() {
   const materialsRows = sortedMaterials.value
     .map(
       (m) =>
-        `<tr><td>${escapeHtml(m.name)}</td><td>${m.quantity}</td><td>${escapeHtml(m.unit || '')}</td><td>${m.share ?? ''}%</td></tr>`,
+        `<tr><td>${escapeHtml(m.name)}</td><td>${m.quantity}</td><td>${escapeHtml(formatUnit(m.unit, ''))}</td><td>${m.share ?? ''}%</td></tr>`,
     )
     .join('')
   const costRows = d.costs.by_project
@@ -679,7 +679,7 @@ onMounted(async () => {
                     <span>{{ item.name }}</span>
                     <span class="muted">
                       {{ formatQty(item.quantity) }}
-                      <template v-if="item.unit"> {{ item.unit }}</template>
+                      <template v-if="item.unit"> {{ formatUnit(item.unit) }}</template>
                       · {{ item.share ?? 0 }}%
                     </span>
                   </div>
@@ -690,7 +690,7 @@ onMounted(async () => {
                     />
                   </div>
                   <div v-if="hoveredMaterial === item.name" class="tooltip">
-                    {{ item.name }} — {{ formatQty(item.quantity) }}{{ item.unit ? ` ${item.unit}` : '' }}
+                    {{ item.name }} — {{ formatQty(item.quantity) }}{{ item.unit ? ` ${formatUnit(item.unit)}` : '' }}
                     ({{ item.share ?? 0 }}% of total qty)
                   </div>
                 </div>
@@ -710,7 +710,7 @@ onMounted(async () => {
                     <tr v-for="item in sortedMaterials" :key="item.name">
                       <td>{{ item.name }}</td>
                       <td>{{ formatQty(item.quantity) }}</td>
-                      <td class="muted">{{ item.unit || '—' }}</td>
+                      <td class="muted">{{ item.unit ? formatUnit(item.unit) : '—' }}</td>
                       <td>{{ item.share ?? 0 }}%</td>
                     </tr>
                   </tbody>

@@ -10,6 +10,7 @@ from app.models.analysis import DocumentAnalysis
 from app.models.eoq import EOQ
 from app.models.comparison import ComparisonResult
 from app.models.document import Document
+from app.services.csi_mapper import format_export_unit, normalize_unit
 from app.services.processing import load_findings
 
 
@@ -30,10 +31,22 @@ def compare_eoqs(db: Session, *, project_id: int, left_eoq_id: int, right_eoq_id
     for key, li in left_map.items():
         ri = right_map.get(key)
         if not ri:
-            missing.append({"description": li.description, "quantity": float(li.quantity), "unit": li.unit})
+            missing.append(
+                {
+                    "description": li.description,
+                    "quantity": float(li.quantity),
+                    "unit": format_export_unit(li.unit),
+                }
+            )
             continue
-        if li.unit.lower() != ri.unit.lower():
-            unit_mismatch.append({"description": li.description, "left_unit": li.unit, "right_unit": ri.unit})
+        if normalize_unit(li.unit) != normalize_unit(ri.unit):
+            unit_mismatch.append(
+                {
+                    "description": li.description,
+                    "left_unit": format_export_unit(li.unit),
+                    "right_unit": format_export_unit(ri.unit),
+                }
+            )
         if float(li.quantity) != float(ri.quantity):
             qty_diff.append(
                 {
@@ -46,7 +59,13 @@ def compare_eoqs(db: Session, *, project_id: int, left_eoq_id: int, right_eoq_id
 
     for key, ri in right_map.items():
         if key not in left_map:
-            extra.append({"description": ri.description, "quantity": float(ri.quantity), "unit": ri.unit})
+            extra.append(
+                {
+                    "description": ri.description,
+                    "quantity": float(ri.quantity),
+                    "unit": format_export_unit(ri.unit),
+                }
+            )
 
     summary = (
         f"Compared Estimate Of Quantities v{left.version} vs v{right.version}: "

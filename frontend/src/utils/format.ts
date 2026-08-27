@@ -12,6 +12,32 @@ export function formatQty(value: number | string | null | undefined): string {
   return n.toFixed(2)
 }
 
+const UNIT_LABELS: Record<string, string> = {
+  sf: 'SQFT',
+  sqft: 'SQFT',
+  'sq ft': 'SQFT',
+  'square foot': 'SQFT',
+  'square feet': 'SQFT',
+  squarefoot: 'SQFT',
+  squarefeet: 'SQFT',
+  t: 'TON',
+  ton: 'TON',
+  tons: 'TON',
+  tonne: 'TON',
+  tonnes: 'TON',
+}
+
+/** USA pay-item labels: SQFT not SF, TON not T. */
+export function formatUnit(unit: string | null | undefined, fallback = 'UNIT'): string {
+  const raw = String(unit ?? '').trim()
+  if (!raw || raw === '—') return raw || fallback
+  const key = raw.toLowerCase().replace(/³/g, '3').replace(/\s+/g, ' ')
+  if (UNIT_LABELS[key]) return UNIT_LABELS[key]
+  const compact = key.replace(/[.\s]/g, '')
+  if (UNIT_LABELS[compact]) return UNIT_LABELS[compact]
+  return raw.toUpperCase()
+}
+
 export function formatDate(value: string): string {
   return new Date(value).toLocaleString(undefined, {
     year: 'numeric',

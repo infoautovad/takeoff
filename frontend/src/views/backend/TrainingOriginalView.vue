@@ -7,6 +7,7 @@ import {
   type TrainingCaseDetail,
 } from '@/api/training'
 import TrainingStageNav from '@/components/backend/TrainingStageNav.vue'
+import { formatUnit } from '@/utils/format'
 
 const route = useRoute()
 const router = useRouter()
@@ -192,7 +193,7 @@ async function uploadExpected() {
             <tr v-for="(it, idx) in expectedItems" :key="idx">
               <td class="text-center">{{ it.item_no ?? it.display_number ?? idx + 1 }}</td>
               <td class="font-weight-medium">{{ it.description || '—' }}</td>
-              <td class="text-uppercase text-center">{{ String(it.unit || 'UNIT').toUpperCase() }}</td>
+              <td class="text-uppercase text-center">{{ formatUnit(it.unit) }}</td>
               <td class="text-right">{{ formatQty(it.quantity) }}</td>
               <td class="text-caption">{{ it.category || it.group || '—' }}</td>
             </tr>

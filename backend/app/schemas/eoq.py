@@ -4,6 +4,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.eoq import EOQItemStatus, EOQStatus
+from app.schemas.units import PayUnit
 
 
 class EOQItemUpdate(BaseModel):
@@ -27,7 +28,7 @@ class EOQItemOut(BaseModel):
     csi_code: str | None = None
     description: str
     category: str | None
-    unit: str
+    unit: PayUnit
     quantity: Decimal
     rate: Decimal | None
     amount: Decimal | None

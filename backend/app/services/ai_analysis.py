@@ -13,6 +13,13 @@ from pathlib import Path
 from typing import Any
 
 from app.services.extractors import ExtractedContent
+from app.services.incidental import (
+    description_is_incidental_child,
+    extraction_should_skip,
+    quantity_inflated_by_incidentals,
+    should_drop_incidental_item,
+)
+from app.services.item_combine import combine_similar_pay_items
 
 CIVIL_PATTERNS: list[tuple[str, str, str, str]] = [
     # description_key, category, unit_hint, regex
@@ -81,11 +88,19 @@ SOURCE OF TRUTH (strict — follow in order):
 3. Include Alternate A / Alternate B / option sections as valid pay items; keep the alternate label in category or description.
 4. Include lump-sum and non-physical rows: Mobilization, Tax on City Furnished Materials, Winter Maintenance,
    Traffic Control, temporary items, signals, lighting, removals, erosion/landscaping.
-5. Do NOT create items from plan labels, profiles, details, symbols, or typical sections unless that exact
-   pay item appears on an authoritative schedule. Do NOT decompose a bundled schedule item into fittings
+5. When a Bid Items / Estimate Of Quantities table exists, COPY those table rows as the pay-item list.
+   Do NOT invent extras from F-sheets, typical sections, trench assumptions, graphic/symbol counts,
+   or device “Project Totals” tables. Do NOT decompose a bundled schedule item into fittings
    (elbows, tees, valves, hydrants, plugs, reducers, casing/carrier segments) unless those are separate schedule rows.
 6. When a schedule quantity exists, NEVER replace it by counting symbols, reading a detail callout, or measuring geometry.
 7. Keep schedule-distinct variants separate (furnish vs install, left vs right flange, diameters, materials, alternates).
+8. INCIDENTAL WORK is not a pay item. If a note says work is incidental to / included in / paid under a bid item
+   (or "no separate payment/measurement"), do NOT output it as its own quantity AND do NOT add it into the parent
+   item quantity. Parent qty = the pay item only (schedule cell or measured pipe/pavement), never parent + incidentals.
+   Typical-section details for bedding, trench, backfill, fittings, tracer wire, thrust blocks, polywrap, and testing
+   are construction details unless that work is its own Bid Items / EOQ row.
+9. Same pay item on multiple sheets/locations (e.g. Fertilizer 1,189 lb and Fertilizer 39 lb) is ONE bid item.
+   Keep the same description/unit so location quantities can be combined. Do not invent a second pay item name.
 
 REQUIRED SEARCH PASSES:
 - General / LS / tax / temporary / winter maintenance
@@ -136,9 +151,9 @@ ROADS / HIGHWAYS:
 - Earthwork cut/fill CY when cross-sections or mass-haul notes exist. Do not invent corridor volumes without numbers.
 
 UTILITIES:
-- Pipe LF by size and network (water / sanitary / storm). Count fittings, valves, hydrants, manholes, inlets as EA.
-- Trench excavation / bedding / backfill CY from pipe OD + assumed 4 ft cover, width = max(OD+2', 2.5'), bedding 6".
-  Write those assumptions in calculation_method.
+- Pipe LF by size and network (water / sanitary / storm). Count valves, hydrants, manholes, and inlets as EA when they are proposed pay items.
+- Do NOT take off trench excavation, bedding, backfill, tracer wire, polywrap, thrust blocks, testing, or fittings as separate quantities unless they appear as their own Bid Items / EOQ / table-of-quantities row. Those are incidental to the pipe.
+- Do NOT add incidental fitting counts, bedding volumes, or trench CY into the pipe LF (or any parent bid item).
 
 DAMS & RESERVOIRS:
 - Embankment fill, foundation excavation, cutoff, filter/drain, riprap, spillway/stilling-basin concrete.
@@ -152,6 +167,7 @@ RULES:
 - Use numbers printed on the design (station range, width, thickness, counts). Show the formula in calculation_method.
 - If a value is assumed (cover, trench width, HMA density), say so and set confidence 70-80.
 - Do NOT invent items the design does not support. Do NOT omit a pay item that the typical section or schedule-like table shows.
+- Do NOT output incidental/included work as extra pay items, and do not add those amounts into a parent quantity.
 - Keep Traffic Control sign rollup (one SqFt item) as in the shared rules below.
 
 """ + TAKEOFF_ACCURACY_RULES.split("REQUIRED SEARCH PASSES:")[-1].split("EVIDENCE:")[0] + """
@@ -160,18 +176,57 @@ Cite the typical section, dimension, sheet, or callout in source_reference / cal
 """
 
 _SCHEDULE_METHOD_HINTS = (
-    "table",
-    "schedule",
     "quantity sheet",
     "estimate of quantities",
-    "bid",
+    "bid items",
+    "bid item",
+    "std bid",
+    "standard bid",
     "eoq",
     "pay item",
-    "proposal",
+    "proposal quantity",
+    "est. qty",
+    "est qty",
+    "approx. quantity",
+    "approx quantity",
+    "for bidding purposes",
+    "extracted table total",
+    "extracted from quantity table",
+    "extracted from eoq",
+    "extracted from tabular quantity",
+    "eoq schedule",
+)
+_PLAN_INVENT_HINTS = (
+    "graphic count",
+    "channelizer symbol",
+    "from drawing symbol",
+    "from symbol",
+    "typical section",
+    "assumed ",
+    "cover assumed",
+    "trench width",
+    "estimator takeoff",
+    "estimator allowance",
+    "civil estimator",
+    "visible labeled",
+    "unique labeled",
+    "one table row counted",
+    "counted as one proposed",
+    "measured from",
+    "inferred from station",
+    "mutcd",
+    "consolidated",
+    "project total",
+    "itemized table",
+    "f-sheet",
+    "sheets f",
+    "incidental",
+    "no separate pay",
+    "no separate measurement",
+    "subsidiary to",
 )
 _DERIVED_METHOD_HINTS = (
     "geometry",
-    "area",
     "hatch",
     "typical section",
     "inferred",
@@ -180,8 +235,6 @@ _DERIVED_METHOD_HINTS = (
     "from symbol",
     "plan label",
     "callout",
-    "drawing sheet",
-    "engineering drawing",
 )
 # Plan-derived water / utility components that dominate false extras (Test 2).
 _GENERIC_INFERRED_DESC = re.compile(
@@ -350,116 +403,39 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
     items: list[dict[str, Any]] = []
     seen: set[str] = set()
 
-    # 1) Structured tables (CSV/Excel/PDF tables)
-    for table in content.tables:
-        page = table.get("page")
-        rows = table.get("rows") or []
-        if not rows:
-            continue
-        header = [c.lower() for c in rows[0]]
-        qty_idx = _find_col(
-            header,
-            ["approx. quantity", "approx quantity", "quantity", "quantities", "qty", "qnty"],
-        )
-        desc_idx = _find_col(
-            header,
-            ["item description", "description", "desc", "particular", "material", "item"],
-        )
-        unit_idx = _find_col(header, ["unit", "uom"])
-        code_idx = _find_col(
-            header,
-            ["std bid no", "std bid", "standard bid", "item code", "item_code", "bid no", "code"],
-        )
-
-        if qty_idx is None and len(header) >= 3:
-            # common layout: Item, Unit, Qty
-            for i, h in enumerate(header):
-                if "unit" in h:
-                    unit_idx = i
-                if any(k in h for k in ("item", "desc", "material")):
-                    desc_idx = i
-                if any(k in h for k in ("qty", "quantity")):
-                    qty_idx = i
-            if qty_idx is None and len(header) >= 3:
-                desc_idx, unit_idx, qty_idx = 0, 1, 2
-
-        data_rows = rows[1:] if desc_idx is not None else rows
-        for row in data_rows:
-            if not row or desc_idx is None or qty_idx is None:
-                # try freeform first cell mapping
-                joined = " ".join(row).strip()
-                if not joined:
-                    continue
-                mapped = _map_alias(joined)
-                qty = _parse_number(row[-1] if row else None)
-                if mapped and qty is not None:
-                    key = mapped[0].lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    items.append(
-                        _item(
-                            description=mapped[0],
-                            category=mapped[1],
-                            unit=row[unit_idx] if unit_idx is not None and unit_idx < len(row) and row[unit_idx] else mapped[2],
-                            quantity=qty,
-                            document_id=document_id,
-                            page=page,
-                            source=f"{filename}" + (f" - Table p.{page}" if page else " - Table"),
-                            method="Extracted from tabular quantity sheet",
-                            confidence=92,
-                        )
-                    )
-                continue
-
-            if desc_idx >= len(row) or qty_idx >= len(row):
-                continue
-            desc = row[desc_idx].strip()
-            qty = _parse_number(row[qty_idx])
-            if not desc or qty is None:
-                continue
-            mapped = _map_alias(desc)
-            description = mapped[0] if mapped else desc
-            category = mapped[1] if mapped else "General"
-            unit = (
-                row[unit_idx].strip()
-                if unit_idx is not None and unit_idx < len(row) and row[unit_idx].strip()
-                else (mapped[2] if mapped else "unit")
-            )
-            code = row[code_idx].strip() if code_idx is not None and code_idx < len(row) else None
-            key = description.lower()
-            if key in seen:
-                continue
+    # 1) Structured tables (CSV/Excel/PDF). Bid Items / EOQ tables are copied as-is;
+    # F-sheet “Project Totals” / device tables are not pay items.
+    for it in _items_from_document_tables(content, filename=filename, document_id=document_id):
+        key = str(it.get("description") or "").lower()
+        if key and key not in seen:
             seen.add(key)
-            items.append(
-                _item(
-                    description=description,
-                    category=category,
-                    unit=unit,
-                    quantity=qty,
-                    item_code=code,
-                    document_id=document_id,
-                    page=page,
-                    source=f"{filename}" + (f" - Table p.{page}" if page else " - Table"),
-                    method="Extracted from quantity table",
-                    confidence=94,
-                )
-            )
+            items.append(it)
 
-    # 2) Regex over free text
+    schedule_present = _content_has_eoq_schedule(content)
+
+    # 2) Regex over free text — skip when a Bid Items / EOQ table is the pay-item source
     text = content.text or ""
-    for desc, category, unit_hint, pattern in CIVIL_PATTERNS:
+    pattern_rows = () if schedule_present else CIVIL_PATTERNS
+    for desc, category, unit_hint, pattern in pattern_rows:
         if desc.lower() in seen:
             continue
-        match = re.search(pattern, text, flags=re.IGNORECASE | re.DOTALL)
-        if not match:
+        chosen = None
+        for match in re.finditer(pattern, text, flags=re.IGNORECASE | re.DOTALL):
+            qty = _parse_number(match.group(1))
+            if qty is None:
+                continue
+            if extraction_should_skip(desc, text, match.start()):
+                continue
+            chosen = match
+            break
+        if chosen is None:
             continue
-        qty = _parse_number(match.group(1))
+        qty = _parse_number(chosen.group(1))
         if qty is None:
             continue
-        unit = (match.group(2) if match.lastindex and match.lastindex >= 2 else unit_hint) or unit_hint
+        unit = (chosen.group(2) if chosen.lastindex and chosen.lastindex >= 2 else unit_hint) or unit_hint
         unit = _normalize_unit(unit)
-        page = _guess_page(text, match.start(), content)
+        page = _guess_page(text, chosen.start(), content)
         seen.add(desc.lower())
         items.append(
             _item(
@@ -604,8 +580,7 @@ def _items_from_openai_payload(
         if qty is None or not raw_item.get("description"):
             continue
         conf = _parse_number(raw_item.get("confidence")) or Decimal("80")
-        items.append(
-            _item(
+        built = _item(
                 description=str(raw_item.get("description")).strip(),
                 category=str(raw_item.get("category") or "General"),
                 unit=str(raw_item.get("unit") or "unit"),
@@ -621,7 +596,9 @@ def _items_from_openai_payload(
                 status=str(raw_item.get("status") or "needs_review"),
                 source_reference=raw_item.get("source_reference"),
             )
-        )
+        if _should_drop_incidental_item(built):
+            continue
+        items.append(built)
     return items
 
 
@@ -656,6 +633,7 @@ Rules:
 - Include Alternates (A/B), LS items (Mobilization, Tax…), Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
 - Copy the schedule quantity cell — do not substitute a detail/callout count — WHEN a schedule exists.
 - Do NOT invent water fittings/valves/hydrants/pipe segments from free text unless they are schedule rows OR this is design-only takeoff with printed sizes/counts.
+- Skip incidental/included work. Do not list it separately and do not add it into the parent bid-item quantity.
 - If unsure, omit inventing values and mark needs_review.
 {catalog_rules}
 
@@ -802,9 +780,11 @@ def _analyze_pdf_drawings_with_vision(
         + code_hint
         + " Prefer EOQ/bid schedules on sheets when present. Merge (Ctd.) pages. "
         + (
-            "No schedule: generate civil-estimator EOQ from typical sections, dimensions, and counts."
+            "No schedule: generate civil-estimator EOQ from typical sections, dimensions, and counts. "
+            "Do not take off incidental trench/bedding/fittings or add them into pipe quantities."
             if design_takeoff
-            else "Do not invent fittings/valves from plan details when a schedule exists."
+            else "Do not invent fittings/valves from plan details when a schedule exists. "
+            "Do not take off incidental work or add it into a parent bid-item quantity."
         )
     )
     all_items: list[dict[str, Any]] = []
@@ -832,7 +812,8 @@ Primary job:
 - Copy APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a project total.
 - On sheets WITHOUT an EOQ table: take off pay items as a civil estimator from typical sections, dimensions,
   hatch areas, and printed counts (roads, utilities, dams/reservoirs, buildings). Show formulas in calculation_method.
-  Assumed trench cover is 4 ft, trench width OD+2' (min 2.5'), HMA 145 pcf — write assumptions down.
+  Assumed HMA 145 pcf — write assumptions down. Do not invent trench/bedding/backfill or fittings unless they
+  are printed as pay items. Never add incidental work into a parent quantity.
 """
             if design_takeoff
             else """
@@ -850,6 +831,8 @@ Primary job:
 - Copy the EST. QTY / APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a total.
 - On pure plan/profile/detail sheets WITHOUT an EOQ/Bid Items table: do not invent water fittings, valves,
   hydrants, casing/carrier segments, pavement layers, or extra traffic devices from symbols.
+- Incidental notes (incidental to / included in / no separate payment): omit those items entirely. Do not add
+  their counts or volumes into the parent bid item.
 """
         )
         user = f"""
@@ -959,21 +942,67 @@ def _normalize_contract_unit(unit: str | None) -> str:
     return _CONTRACT_UNIT_MAP.get(key, raw)
 
 
-def _method_rank(item: dict[str, Any]) -> int:
-    """Higher = more trustworthy evidence for EOQ accuracy."""
-    method = (
+def _item_evidence_blob(item: dict[str, Any]) -> str:
+    return (
         f"{item.get('calculation_method') or ''} "
         f"{item.get('source_reference') or ''} "
         f"{item.get('source') or ''}"
     ).lower()
-    desc = str(item.get("description") or "")
-    if any(h in method for h in _SCHEDULE_METHOD_HINTS):
-        from app.services.traffic_control import is_plan_device_takeoff
 
-        if is_plan_device_takeoff(item):
-            return 0
+
+def _is_schedule_pay_item(item: dict[str, Any]) -> bool:
+    """True when the row came from a Bid Items / EOQ / quantity-schedule table."""
+    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
+
+    if is_plan_device_takeoff(item):
+        return False
+    if looks_like_agency_bid_number(item.get("item_code")):
+        return True
+    blob = _item_evidence_blob(item)
+    return any(h in blob for h in _SCHEDULE_METHOD_HINTS)
+
+
+def _should_drop_incidental_item(item: dict[str, Any]) -> bool:
+    """Incidental children are omitted; their quantities are never added to a parent."""
+    return should_drop_incidental_item(
+        item,
+        scheduled=_is_schedule_pay_item(item),
+        drop_default_extras=True,
+    )
+
+
+def _is_plan_invent_extra(item: dict[str, Any]) -> bool:
+    """F-sheet devices, symbol counts, MUTCD rollups, assumed trench, typical sections."""
+    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
+
+    if looks_like_agency_bid_number(item.get("item_code")):
+        return False
+    if is_plan_device_takeoff(item):
+        return True
+    blob = _item_evidence_blob(item)
+    if any(h in blob for h in _PLAN_INVENT_HINTS):
+        # Vision may still cite a bid table in the same blob — that is a schedule row.
+        if any(h in blob for h in _SCHEDULE_METHOD_HINTS):
+            return False
+        return True
+    entity = str(item.get("entity_type") or "").upper()
+    if entity == "ESTIMATOR":
+        return True
+    if re.search(r"\bsheet f\d", blob) and any(
+        h in blob for h in ("graphic", "symbol", "project total", "itemized", "measured", "approximate")
+    ):
+        return True
+    return False
+
+
+def _method_rank(item: dict[str, Any]) -> int:
+    """Higher = more trustworthy evidence for EOQ accuracy."""
+    if _is_plan_invent_extra(item):
+        return 0
+    if _is_schedule_pay_item(item):
         return 3
-    # Plan-derived fittings/components are weakest when schedules exist
+    method = _item_evidence_blob(item)
+    desc = str(item.get("description") or "")
     if _GENERIC_INFERRED_DESC.search(desc) and any(
         h in method for h in ("label", "callout", "drawing", "symbol", "geometry")
     ):
@@ -986,32 +1015,24 @@ def _method_rank(item: dict[str, Any]) -> int:
 
 
 def _looks_like_schedule_item(item: dict[str, Any]) -> bool:
-    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
-
-    if is_plan_device_takeoff(item):
-        return False
-    if looks_like_agency_bid_number(item.get("item_code")):
-        return True
-    return _method_rank(item) >= 3
+    return _is_schedule_pay_item(item)
 
 
 def _is_plan_derived(item: dict[str, Any]) -> bool:
-    method = (
-        f"{item.get('calculation_method') or ''} "
-        f"{item.get('source_reference') or ''} "
-        f"{item.get('source') or ''}"
-    ).lower()
+    if _is_schedule_pay_item(item):
+        return False
+    if _is_plan_invent_extra(item):
+        return True
+    method = _item_evidence_blob(item)
     return any(
         h in method
         for h in (
             "plan label",
             "callout",
             "drawing label",
-            "drawing sheet",
-            "engineering drawing",
             "geometry",
-            "symbol",
-            "graphic",
+            "from symbol",
+            "graphic count",
             "project total",
             "itemized table",
             "typical section",
@@ -1020,11 +1041,237 @@ def _is_plan_derived(item: dict[str, Any]) -> bool:
     )
 
 
+def _table_header_text(table: dict[str, Any]) -> str:
+    rows = table.get("rows") or []
+    if not rows:
+        return ""
+    return " ".join(str(c or "") for c in rows[0]).lower()
+
+
+def _is_plan_device_table(table: dict[str, Any]) -> bool:
+    header = _table_header_text(table)
+    return any(k in header for k in ("project total", "project totals", "itemized"))
+
+
+def _is_bid_schedule_table(table: dict[str, Any]) -> bool:
+    """True for Bid Items / EOQ / quantity-schedule tables — not F-sheet device tables."""
+    if _is_plan_device_table(table):
+        return False
+    header = _table_header_text(table)
+    if any(
+        k in header
+        for k in (
+            "std bid",
+            "standard bid",
+            "est. qty",
+            "est qty",
+            "approx. quantity",
+            "approx quantity",
+            "bid item",
+            "item description",
+            "for bidding",
+            "proposal quantity",
+        )
+    ):
+        return True
+    if (
+        ("description" in header or "particular" in header)
+        and ("quantity" in header or "qty" in header)
+        and ("unit" in header)
+        and not any(k in header for k in ("tjb", "fjb", "fitting", "locator", "channelizer"))
+    ):
+        return True
+    return False
+
+
+_QTY_COL_NAMES = (
+    "approx. quantity",
+    "approx quantity",
+    "est. qty",
+    "est qty",
+    "quantity",
+    "quantities",
+    "qty",
+    "qnty",
+)
+_DESC_COL_NAMES = (
+    "item description",
+    "description",
+    "particular",
+    "material",
+    "desc",
+    "item",
+)
+_UNIT_COL_NAMES = ("units", "unit", "uom")
+_CODE_COL_NAMES = (
+    "std bid no",
+    "standard bid",
+    "std bid",
+    "bid item",
+    "item code",
+    "item_code",
+    "bid no",
+    "code",
+)
+_SKIP_TABLE_DESC_RE = re.compile(
+    r"^(project\s+)?totals?$|"
+    r"^(item(\s*(no|number|#))?|bid item|description|item description|"
+    r"units?|est\.?\s*qty|approx\.?\s*quantity|quantity|std bid.*)$",
+    re.I,
+)
+
+
+def _items_from_document_tables(
+    content: ExtractedContent,
+    *,
+    filename: str,
+    document_id: int,
+) -> list[dict[str, Any]]:
+    """Copy Bid Items / EOQ tables as pay items. Skip F-sheet Project Totals tables."""
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    tables = list(content.tables or [])
+    schedule_tables = [t for t in tables if _is_bid_schedule_table(t)]
+    if schedule_tables:
+        chosen = schedule_tables
+        schedule_copy = True
+    else:
+        chosen = [t for t in tables if not _is_plan_device_table(t)]
+        schedule_copy = False
+
+    for table in chosen:
+        page = table.get("page")
+        rows = table.get("rows") or []
+        if not rows:
+            continue
+        header = [str(c or "").lower() for c in rows[0]]
+        qty_idx = _find_col(header, list(_QTY_COL_NAMES))
+        desc_idx = _find_col(header, list(_DESC_COL_NAMES))
+        unit_idx = _find_col(header, list(_UNIT_COL_NAMES))
+        code_idx = _find_col(header, list(_CODE_COL_NAMES))
+
+        if qty_idx is None and len(header) >= 3:
+            for i, h in enumerate(header):
+                if "unit" in h:
+                    unit_idx = i
+                if any(k in h for k in ("item", "desc", "material")):
+                    desc_idx = i
+                if any(k in h for k in ("qty", "quantity")):
+                    qty_idx = i
+            if qty_idx is None and len(header) >= 3:
+                desc_idx, unit_idx, qty_idx = 0, 1, 2
+
+        method = (
+            "Extracted from quantity table"
+            if schedule_copy
+            else "Extracted from tabular quantity sheet"
+        )
+        source = (
+            f"{filename} - Bid Items / EOQ table" + (f" p.{page}" if page else "")
+            if schedule_copy
+            else f"{filename}" + (f" - Table p.{page}" if page else " - Table")
+        )
+        source_reference = "Bid Items / EOQ table" if schedule_copy else source
+
+        data_rows = rows[1:] if desc_idx is not None else rows
+        for row in data_rows:
+            if not row or desc_idx is None or qty_idx is None:
+                joined = " ".join(str(c or "") for c in row).strip()
+                if not joined:
+                    continue
+                mapped = _map_alias(joined)
+                qty = _parse_number(row[-1] if row else None)
+                if mapped and qty is not None:
+                    key = mapped[0].lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    items.append(
+                        _item(
+                            description=mapped[0],
+                            category=mapped[1],
+                            unit=(
+                                row[unit_idx]
+                                if unit_idx is not None and unit_idx < len(row) and row[unit_idx]
+                                else mapped[2]
+                            ),
+                            quantity=qty,
+                            document_id=document_id,
+                            page=page,
+                            source=source,
+                            method=method,
+                            source_reference=source_reference,
+                            confidence=92,
+                        )
+                    )
+                continue
+
+            if desc_idx >= len(row) or qty_idx >= len(row):
+                continue
+            desc = str(row[desc_idx] or "").strip()
+            if not desc or _SKIP_TABLE_DESC_RE.match(desc):
+                continue
+            row_joined = " ".join(str(c or "") for c in row)
+            if description_is_incidental_child(desc) or (
+                not schedule_copy and description_is_incidental_child(row_joined)
+            ):
+                continue
+            qty = _parse_number(row[qty_idx])
+            if qty is None:
+                continue
+            mapped = _map_alias(desc)
+            description = mapped[0] if mapped else desc
+            category = mapped[1] if mapped else "General"
+            unit = (
+                str(row[unit_idx]).strip()
+                if unit_idx is not None and unit_idx < len(row) and str(row[unit_idx] or "").strip()
+                else (mapped[2] if mapped else "unit")
+            )
+            code = (
+                str(row[code_idx]).strip()
+                if code_idx is not None and code_idx < len(row) and row[code_idx]
+                else None
+            )
+            key = description.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                _item(
+                    description=description,
+                    category=category,
+                    unit=unit,
+                    quantity=qty,
+                    item_code=code,
+                    document_id=document_id,
+                    page=page,
+                    source=source,
+                    method=method,
+                    source_reference=source_reference,
+                    confidence=94,
+                )
+            )
+    return items
+
+
 def _content_has_eoq_schedule(content: ExtractedContent | None) -> bool:
     if not content:
         return False
     blob = (content.text or "").lower()
     if "estimate of quantities" in blob:
+        return True
+    if re.search(r"\bbid items\b", blob) and any(
+        k in blob
+        for k in (
+            "est. qty",
+            "est qty",
+            "std bid",
+            "item description",
+            "approx. quantity",
+            "approx quantity",
+            "bid item",
+        )
+    ):
         return True
     if any(
         k in blob
@@ -1035,47 +1282,20 @@ def _content_has_eoq_schedule(content: ExtractedContent | None) -> bool:
             "std bid",
             "standard bid",
             "for bidding purposes only",
-            "bid item",
             "est. qty",
             "est qty",
-            "item number",
         )
     ) and any(k in blob for k in ("quantity", "unit", "item")):
         return True
-    for table in content.tables or []:
-        rows = table.get("rows") or []
-        if not rows:
-            continue
-        header = " ".join(str(c).lower() for c in rows[0])
-        if (
-            ("description" in header or "particular" in header)
-            and ("quantity" in header or "qty" in header)
-            and ("unit" in header)
-        ):
-            return True
-        if "std bid" in header or "item description" in header:
-            return True
-        if "bid item" in header and ("qty" in header or "quantity" in header):
-            return True
-    return False
-
-
-def _fuzzy_desc_key(desc: str) -> str:
-    text = re.sub(r"[^a-z0-9]+", " ", (desc or "").lower()).strip()
-    # Drop leading size tokens for loose collision checks
-    text = re.sub(r"^\d+\s*(inch|in|\"|mm)?\s*", "", text)
-    # Normalize continuation markers so Ctd. rows merge with parent category names
-    text = re.sub(r"\bctd\b|\bcontinued\b", "", text).strip()
-    return text[:80]
+    return any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows"))
 
 
 def _should_drop_inferred_extra(
     item: dict[str, Any],
     *,
-    schedule_keys: set[str],
     schedule_present: bool,
 ) -> bool:
-    """Drop low-evidence plan invents when a schedule/EOQ is available."""
+    """When a Bid Items / EOQ table exists, keep schedule rows and drop F-sheet invents."""
     if not schedule_present:
         return False
     if _looks_like_schedule_item(item):
@@ -1083,31 +1303,9 @@ def _should_drop_inferred_extra(
     desc = str(item.get("description") or "").strip()
     if not desc:
         return True
-    key = _fuzzy_desc_key(desc)
-    # Keep if it roughly matches a schedule description
-    if key and any(key in sk or sk in key for sk in schedule_keys if len(sk) >= 8):
-        return False
-    conf = float(item.get("confidence") or 0)
-    rank = _method_rank(item)
-
-    # Strict: plan-derived water fittings / pipe fragments vs schedule documents
-    if _GENERIC_INFERRED_DESC.search(desc) and (_is_plan_derived(item) or rank <= 1):
+    if _is_plan_invent_extra(item) or _is_plan_derived(item):
         return True
-    if _is_plan_derived(item) and not item.get("item_code") and conf < 96:
-        return True
-    from app.services.traffic_control import is_plan_device_takeoff, is_traffic_sign_item, looks_like_agency_bid_number
-
-    if (
-        schedule_present
-        and is_plan_device_takeoff(item)
-        and not looks_like_agency_bid_number(item.get("item_code"))
-        and (
-            is_traffic_sign_item(item)
-            or re.search(r"channeliz", desc, re.I)
-        )
-    ):
-        return True
-    if rank == 0 and conf < 92:
+    if _GENERIC_INFERRED_DESC.search(desc) and _method_rank(item) <= 1:
         return True
     return False
 
@@ -1116,7 +1314,19 @@ def _prefer_schedule_quantity(
     existing: dict[str, Any],
     candidate: dict[str, Any],
 ) -> dict[str, Any]:
-    """When merging duplicates, keep schedule wording/qty over derived geometry."""
+    """When merging duplicates, keep schedule wording/qty over derived geometry.
+
+    Never replace a clean parent quantity with one that folded in incidental work.
+    """
+    e_blob = _item_evidence_blob(existing)
+    c_blob = _item_evidence_blob(candidate)
+    e_inflated = quantity_inflated_by_incidentals(e_blob)
+    c_inflated = quantity_inflated_by_incidentals(c_blob)
+    if c_inflated and not e_inflated:
+        return dict(existing)
+    if e_inflated and not c_inflated:
+        return dict(candidate)
+
     er = _method_rank(existing)
     cr = _method_rank(candidate)
     if cr > er:
@@ -1136,22 +1346,38 @@ def _prefer_schedule_quantity(
     if existing.get("item_code") and not candidate.get("item_code"):
         return dict(existing)
     if new_c > old_c + 2:
+        if c_inflated:
+            return dict(existing)
         return dict(candidate)
     # When both schedule-grade, prefer the larger qty (avoids detail undercounts)
-    if er >= 2 and cr >= 2 and new_q > old_q * 1.15:
+    # unless the larger figure mixed in incidental work.
+    if er >= 2 and cr >= 2 and new_q > old_q * 1.15 and not c_inflated:
         return dict(candidate)
-    if abs(new_c - old_c) <= 2 and new_q > old_q and er == 0:
+    if abs(new_c - old_c) <= 2 and new_q > old_q and er == 0 and not c_inflated:
         return dict(candidate)
     if abs(new_c - old_c) <= 2 and er >= 2:
         return dict(existing)
-    if abs(new_c - old_c) <= 2 and new_q > old_q:
+    if abs(new_c - old_c) <= 2 and new_q > old_q and not c_inflated:
         return dict(candidate)
     return dict(existing)
 
 
 def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | None = None) -> dict[str, Any]:
-    """Post-process takeoff: prefer schedule evidence and drop likely invented extras."""
+    """Copy Bid Items / EOQ tables as pay items; drop F-sheet and estimator invents."""
     items = [dict(i) for i in (result.get("items") or []) if i.get("description")]
+    if content is not None:
+        doc_id = 0
+        for existing in items:
+            try:
+                doc_id = int(existing.get("source_document_id") or 0)
+            except (TypeError, ValueError):
+                doc_id = 0
+            if doc_id:
+                break
+        copied = _items_from_document_tables(content, filename="plan", document_id=doc_id)
+        if copied:
+            items = copied + items
+
     if not items:
         return result
 
@@ -1167,47 +1393,31 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
                 flags=re.I,
             ).strip() or cat
 
-    schedule_present = _content_has_eoq_schedule(content) or any(_looks_like_schedule_item(i) for i in items)
-    # Also treat many vision items from EOQ-titled sheets as schedule-backed corpus
-    if not schedule_present and content and "estimate of quantities" in (content.text or "").lower():
-        schedule_present = True
+    before_incidental = len(items)
+    items = [item for item in items if not _should_drop_incidental_item(item)]
+    incidental_dropped = before_incidental - len(items)
+    if not items:
+        out = dict(result)
+        out["items"] = []
+        note = "Dropped incidental-to-bid-item work (not separately paid)."
+        out["notes"] = ((out.get("notes") or "") + " | " + note).strip(" |")
+        return out
 
-    schedule_keys = {
-        _fuzzy_desc_key(str(i.get("description") or ""))
-        for i in items
-        if _looks_like_schedule_item(i)
-    }
-    # If schedule evidence is thin but EOQ title exists, use all higher-confidence keys as anchors
-    if schedule_present and len(schedule_keys) < 5:
-        schedule_keys |= {
-            _fuzzy_desc_key(str(i.get("description") or ""))
-            for i in items
-            if float(i.get("confidence") or 0) >= 90 and not _is_plan_derived(i)
-        }
-
-    # Collapse near-duplicates preferring schedule
-    collapsed: dict[str, dict[str, Any]] = {}
-    for item in items:
-        code = str(item.get("item_code") or item.get("csi_code") or "").strip().lower()
-        unit = str(item.get("unit") or "").strip().lower()
-        desc_key = _fuzzy_desc_key(str(item.get("description") or ""))
-        key = f"{code}|{desc_key}|{unit}" if code else f"|{desc_key}|{unit}"
-        if key not in collapsed:
-            collapsed[key] = dict(item)
-        else:
-            collapsed[key] = _prefer_schedule_quantity(collapsed[key], item)
+    schedule_present = _content_has_eoq_schedule(content) or any(
+        _looks_like_schedule_item(i) for i in items
+    )
 
     cleaned: list[dict[str, Any]] = []
     dropped = 0
-    for item in collapsed.values():
-        if _should_drop_inferred_extra(
-            item,
-            schedule_keys=schedule_keys,
-            schedule_present=schedule_present,
-        ):
+    for item in items:
+        if _should_drop_inferred_extra(item, schedule_present=schedule_present):
             dropped += 1
             continue
         cleaned.append(item)
+
+    before_combine = len(cleaned)
+    cleaned = combine_similar_pay_items(cleaned)
+    combined_groups = before_combine - len(cleaned)
 
     # Roll individual traffic signs → one SqFt "Traffic Control" item
     from app.services.traffic_control import consolidate_traffic_control_signs
@@ -1222,6 +1432,19 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
 
     out = dict(result)
     out["items"] = cleaned
+    if incidental_dropped:
+        inc_note = (
+            f"Omitted {incidental_dropped} incidental item(s); "
+            "not separately paid and not added to parent quantities."
+        )
+        out["notes"] = ((out.get("notes") or "") + " | " + inc_note).strip(" |")
+        out["summary"] = f"{(out.get('summary') or '')} {inc_note}".strip()
+    if combined_groups:
+        comb_note = (
+            f"Combined {combined_groups} similar pay item(s) from multiple locations into one quantity."
+        )
+        out["notes"] = ((out.get("notes") or "") + " | " + comb_note).strip(" |")
+        out["summary"] = f"{(out.get('summary') or '')} {comb_note}".strip()
     if dropped:
         note = f"Filtered {dropped} low-evidence inferred item(s) (schedule-first policy)."
         out["notes"] = ((out.get("notes") or "") + " | " + note).strip(" |")
@@ -1240,28 +1463,21 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
 
 
 def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str, Any]) -> dict[str, Any]:
-    """Union text/table items with drawing-vision items; prefer schedule over derived."""
-    merged: dict[str, dict[str, Any]] = {}
+    """Union text/table items with drawing-vision items.
 
-    def key_for(item: dict[str, Any]) -> str:
-        code = str(item.get("item_code") or item.get("csi_code") or "").strip().lower()
-        desc = _fuzzy_desc_key(str(item.get("description") or ""))
-        unit = _normalize_contract_unit(str(item.get("unit") or "")).lower()
-        return f"{code}|{desc}|{unit}"
-
+    Keep every location takeoff; similar rows are summed later in finalize.
+    """
+    items: list[dict[str, Any]] = []
     for source in (text_result.get("items") or [], vision_result.get("items") or []):
         for item in source:
             if not item.get("description"):
                 continue
             normalized = dict(item)
             normalized["unit"] = _normalize_contract_unit(normalized.get("unit"))
-            k = key_for(normalized)
-            if k not in merged:
-                merged[k] = normalized
+            if _should_drop_incidental_item(normalized):
                 continue
-            merged[k] = _prefer_schedule_quantity(merged[k], normalized)
+            items.append(normalized)
 
-    items = list(merged.values())
     facts = list(text_result.get("facts") or []) + list(vision_result.get("facts") or [])
     summary = (
         f"{vision_result.get('summary') or ''} "
@@ -1430,11 +1646,25 @@ def _map_alias(text: str) -> tuple[str, str, str] | None:
 
 
 def _find_col(header: list[str], names: list[str]) -> int | None:
-    for i, h in enumerate(header):
+    """Pick the column whose header best matches (longest / exact name wins)."""
+    best: tuple[int, int] | None = None
+    for i, raw in enumerate(header):
+        h = str(raw or "").strip().lower()
+        if not h:
+            continue
         for n in names:
-            if n == h or n in h:
-                return i
-    return None
+            key = str(n or "").strip().lower()
+            if not key:
+                continue
+            if key == h:
+                score = 1000 + len(key)
+            elif key in h:
+                score = len(key)
+            else:
+                continue
+            if best is None or score > best[0]:
+                best = (score, i)
+    return best[1] if best else None
 
 
 def _parse_number(value: Any) -> Decimal | None:
