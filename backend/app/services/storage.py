@@ -23,12 +23,43 @@ class StorageService:
             return await self._save_s3(key, data)
         return await self._save_local(key, data)
 
+    async def save_upload_file(self, key: str, upload, *, max_bytes: int | None = None) -> int:
+        """Stream an upload to disk in chunks so 1GB+ PDFs are not loaded into RAM."""
+        if self.settings.storage_backend == "s3":
+            data = await upload.read()
+            if max_bytes and max_bytes > 0 and len(data) > max_bytes:
+                raise ValueError(f"File exceeds {max_bytes} byte limit")
+            await self._save_s3(key, data)
+            return len(data)
+        return await self._save_local_stream(key, upload, max_bytes=max_bytes)
+
     async def _save_local(self, key: str, data: bytes) -> str:
         path = self.root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         async with aiofiles.open(path, "wb") as f:
             await f.write(data)
         return str(path)
+
+    async def _save_local_stream(self, key: str, upload, *, max_bytes: int | None = None) -> int:
+        path = self.root / key
+        path.parent.mkdir(parents=True, exist_ok=True)
+        size = 0
+        chunk_size = 1024 * 1024
+        try:
+            async with aiofiles.open(path, "wb") as f:
+                while True:
+                    chunk = await upload.read(chunk_size)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if max_bytes and max_bytes > 0 and size > max_bytes:
+                        raise ValueError(f"File exceeds {max_bytes} byte limit")
+                    await f.write(chunk)
+        except Exception:
+            if path.exists():
+                path.unlink(missing_ok=True)
+            raise
+        return size
 
     async def _save_s3(self, key: str, data: bytes) -> str:
         # Placeholder for AWS S3 integration (Phase: operations / deployment)

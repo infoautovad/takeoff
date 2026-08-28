@@ -71,11 +71,12 @@ const analyzeStatus = ref<'running' | 'success' | 'error' | 'cancelled'>('runnin
 const analyzeStatusMessage = ref('')
 let analyzeAbort: AbortController | null = null
 let analyzeProgressTimer: ReturnType<typeof setInterval> | null = null
+let analyzeStartedAt = 0
 
 const pdfAnalyzeStages = [
   { at: 8, label: 'Opening plan file…' },
   { at: 22, label: 'Extracting text & tables…' },
-  { at: 38, label: 'Reading drawing sheets (vision)…' },
+  { at: 38, label: 'Vision-scanning every plan sheet…' },
   { at: 52, label: 'Matching bid template lines…' },
   { at: 68, label: 'Running AI quantity takeoff…' },
   { at: 84, label: 'Scoring confidence…' },
@@ -455,11 +456,20 @@ function startAnalyzeProgress(label: string, cad = false) {
   analyzeStatusMessage.value = ''
   analyzeCancelConfirm.value = false
   analyzeModal.value = true
+  analyzeStartedAt = Date.now()
   clearAnalyzeProgressTimer()
   analyzeProgressTimer = setInterval(() => {
     if (analyzeStatus.value !== 'running') return
     const next = Math.min(94, analyzeProgress.value + (analyzeProgress.value < 40 ? 1.4 : analyzeProgress.value < 70 ? 0.7 : 0.35))
     analyzeProgress.value = Math.round(next * 10) / 10
+    const elapsedMin = Math.floor((Date.now() - analyzeStartedAt) / 60000)
+    if (analyzeProgress.value >= 94) {
+      analyzeStage.value =
+        elapsedMin >= 1
+          ? `Still scanning every page (${elapsedMin} min). Large files can take 60+ minutes. The bar stays at 94% until Analyze finishes.`
+          : 'Waiting for the server — this is not a confidence score'
+      return
+    }
     const stage = [...analyzeStages.value].reverse().find((s) => analyzeProgress.value >= s.at)
     if (stage) analyzeStage.value = stage.label
   }, 420)

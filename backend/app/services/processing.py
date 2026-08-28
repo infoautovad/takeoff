@@ -7,6 +7,7 @@ import json
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.models.analysis import DocumentAnalysis
 from app.models.cad import CadJobStatus, CadModel
 from app.models.document import Document, ProcessingStatus
@@ -37,6 +38,9 @@ def process_document(db: Session, document: Document) -> DocumentAnalysis:
     """Analyze a document. CAD/DWG/DXF/LandXML files use the CAD engine."""
     if detect_cad_format(document):
         return _process_cad_as_analysis(db, document)
+
+    # Re-read .env each Analyze so timeout/vision settings are not stuck in process cache.
+    get_settings.cache_clear()
 
     document.processing_status = ProcessingStatus.PROCESSING
     document.error_message = None

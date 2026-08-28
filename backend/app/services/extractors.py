@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,18 @@ import pdfplumber
 from openpyxl import load_workbook
 
 from app.models.document import DocumentType
+
+# Bid / quantity sheets only — drawing pages with broken XObjects hang pdfplumber.
+_TABLE_PAGE_HINTS = re.compile(
+    r"bid\s*items?|estimate\s+of\s+quantit|est\.?\s*qty|std\s*bid|"
+    r"approx\.?\s*quantity|item\s*(?:no\.?|number|#)|pay\s*item|"
+    r"description.{0,80}(?:qty|quantity|unit)|quantity\s+unit",
+    re.I,
+)
+_STRONG_TABLE_HINTS = re.compile(
+    r"bid\s*items?|estimate\s+of\s+quantit|est\.?\s*qty|std\s*bid|approx\.?\s*quantity",
+    re.I,
+)
 
 
 @dataclass
@@ -27,6 +40,31 @@ class ExtractedContent:
     page_count: int | None = None
     pages: list[PageText] = field(default_factory=list)
     tables: list[dict] = field(default_factory=list)
+
+
+def pages_worth_table_extract(
+    pages: list[PageText],
+    *,
+    page_count: int,
+    max_table_pages: int | None = None,
+) -> set[int]:
+    """1-based pages that should run pdfplumber table extract.
+
+    Default: every page. Optional max_table_pages is only for callers that pass a cap.
+    Per-page extract is try/except so one broken sheet does not abort the file.
+    """
+    chosen = {p.page for p in pages}
+    if max_table_pages and len(chosen) > max_table_pages:
+        hinted: list[int] = []
+        for page in pages:
+            if _TABLE_PAGE_HINTS.search(page.text or ""):
+                hinted.append(page.page)
+        by_no = {p.page: p for p in pages}
+        strong = [n for n in hinted if _STRONG_TABLE_HINTS.search((by_no.get(n) and by_no[n].text) or "")]
+        weak = [n for n in hinted if n not in strong]
+        keep = {1, 2, 3, *(strong + weak)[: max(0, max_table_pages - 3)]}
+        return {n for n in keep if n in chosen}
+    return chosen
 
 
 def extract_file(path: Path, document_type: DocumentType) -> ExtractedContent:
@@ -50,19 +88,33 @@ def extract_file(path: Path, document_type: DocumentType) -> ExtractedContent:
 def _extract_pdf(path: Path) -> ExtractedContent:
     pages: list[PageText] = []
     tables: list[dict] = []
+    try:
+        fitz.TOOLS.mupdf_display_errors(False)
+    except Exception:
+        pass
 
     with fitz.open(path) as doc:
         for i, page in enumerate(doc, start=1):
-            text = page.get_text("text") or ""
+            try:
+                text = page.get_text("text") or ""
+            except Exception:
+                text = ""
             pages.append(PageText(page=i, text=text))
 
+    table_pages = pages_worth_table_extract(pages, page_count=len(pages))
     try:
         with pdfplumber.open(path) as pdf:
             for i, page in enumerate(pdf.pages, start=1):
-                for table in page.extract_tables() or []:
+                if i not in table_pages:
+                    continue
+                try:
+                    extracted = page.extract_tables() or []
+                except Exception:
+                    continue
+                for table in extracted:
                     if not table:
                         continue
-                    tables.append({"page": i, "rows": table[:80]})
+                    tables.append({"page": i, "rows": table[:250]})
     except Exception:
         pass
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any
@@ -88,12 +89,14 @@ SOURCE OF TRUTH (strict — follow in order):
 3. Include Alternate A / Alternate B / option sections as valid pay items; keep the alternate label in category or description.
 4. Include lump-sum and non-physical rows: Mobilization, Tax on City Furnished Materials, Winter Maintenance,
    Traffic Control, temporary items, signals, lighting, removals, erosion/landscaping.
-5. When a Bid Items / Estimate Of Quantities table exists, COPY those table rows as the pay-item list.
-   Do NOT invent extras from F-sheets, typical sections, trench assumptions, graphic/symbol counts,
-   or device “Project Totals” tables. Do NOT decompose a bundled schedule item into fittings
-   (elbows, tees, valves, hydrants, plugs, reducers, casing/carrier segments) unless those are separate schedule rows.
-6. When a schedule quantity exists, NEVER replace it by counting symbols, reading a detail callout, or measuring geometry.
-7. Keep schedule-distinct variants separate (furnish vs install, left vs right flange, diameters, materials, alternates).
+5. Copy Bid Items / Estimate Of Quantities / proposal quantity rows when they exist.
+   Also keep other evidenced pay items (pipe, pavement, curb, sidewalk, hydrants, valves as EA,
+   manholes, removals, earthwork, landscaping, structures). Combine duplicates later.
+   Do NOT add: incidental trench/bedding/backfill/fittings, individual MUTCD sign faces as Each items,
+   graphic channelizer counts, or traffic-control device “Project Totals” / itemized device tables.
+6. When the SAME pay item appears on both a bid schedule and a plan callout, keep one row and use
+   the schedule quantity. Do not replace a schedule quantity by counting symbols.
+7. Keep schedule-distinct variants separate (furnish vs install, diameters, materials, alternates).
 8. INCIDENTAL WORK is not a pay item. If a note says work is incidental to / included in / paid under a bid item
    (or "no separate payment/measurement"), do NOT output it as its own quantity AND do NOT add it into the parent
    item quantity. Parent qty = the pay item only (schedule cell or measured pipe/pavement), never parent + incidentals.
@@ -126,17 +129,17 @@ IF a Bid Items / Estimate Of Quantities table has a Traffic Control section:
 - Keep companion pay items as separate rows when listed: Traffic Control Miscellaneous (LS), barricades (Each),
   temporary business signs (Each), portable changeable message signs (Each), temporary mailbox (Each),
   temporary gravel access (LS), winter maintenance (LS), and any other printed Traffic Control bid rows.
-- Copy BID ITEM / Standard Bid Item Number (e.g. 634.0110, 9.0010, Special).
-- Do NOT add extra bid items from F-sheet device tables (“Project Totals”), graphic channelizer counts, or individual MUTCD signs.
-  Those faces are already inside the schedule Traffic Control SqFt quantity.
+- Copy BID ITEM / Standard Bid Item Number when printed (agency numbers like 634.0110 or Special — not CSI “01 55 26”).
+- Do NOT add extra bid items from traffic-control device tables (“Project Totals”, itemized device lists),
+  graphic channelizer counts, or individual MUTCD signs. Those faces belong in Traffic Control SqFt when that pay item exists.
 ELSE (no bid schedule for signing):
 - Do NOT list individual STOP/YIELD/Speed Limit/MUTCD signs as separate Each pay items.
 - Roll those sign faces into ONE pay item: description "Traffic Control", unit SqFt (width×height in inches ÷ 144).
 - Keep barricades, drums, PCMS, temporary business signs, and true TTC LS items as their own pay items when evidenced.
 
 EVIDENCE:
-Every output item should cite a schedule/pay-item row in source_reference / calculation_method
-(e.g. "EOQ schedule p.3 row"). Omit invents without schedule evidence.
+Cite a schedule row, typical section, dimension, sheet, or callout in source_reference / calculation_method.
+Do not omit a pay item that is printed as a quantity just because another sheet also has a table.
 """
 
 DESIGN_TAKEOFF_RULES = """
@@ -201,61 +204,35 @@ _PLAN_INVENT_HINTS = (
     "channelizer symbol",
     "from drawing symbol",
     "from symbol",
-    "typical section",
-    "assumed ",
     "cover assumed",
     "trench width",
     "estimator takeoff",
     "estimator allowance",
-    "civil estimator",
-    "visible labeled",
-    "unique labeled",
     "one table row counted",
     "counted as one proposed",
-    "measured from",
-    "inferred from station",
-    "mutcd",
-    "consolidated",
     "project total",
     "itemized table",
-    "f-sheet",
-    "sheets f",
-    "incidental",
-    "no separate pay",
-    "no separate measurement",
-    "subsidiary to",
+    "mutcd ref",
+    "÷144",
+    "/144",
 )
 _DERIVED_METHOD_HINTS = (
     "geometry",
     "hatch",
-    "typical section",
-    "inferred",
-    "assumed",
     "from drawing symbol",
     "from symbol",
-    "plan label",
-    "callout",
 )
-# Plan-derived water / utility components that dominate false extras (Test 2).
+# Incidental fittings / casing only — never core bid items (water main, pavement, curb).
 _GENERIC_INFERRED_DESC = re.compile(
     r"(?:"
-    r"(?:\d+[-\s]?inch\s+)?(?:gravity\s+)?(?:sanitary\s+)?sewer\s+main|"
-    r"(?:\d+[-\s]?inch\s+)?(?:c900|dr\s*\d+\s+)?(?:pvc\s+)?water\s+main|"
     r"(?:\d+[-\s]?inch\s+)?restrained\s+joint|"
     r"(?:\d+[-\s]?inch\s+)?(?:steel\s+)?casing\s+pipe|"
     r"(?:\d+[-\s]?inch\s+)?(?:rj\s+)?(?:pvc\s+)?carrier\s+pipe|"
-    r"sanitary\s+sewer\s+manhole|"
-    r"(?:\d+[-\s]?inch\s+)?fire\s+hydrant|"
-    r"(?:\d+[-\s]?inch\s+)?(?:salvaged\s+)?(?:gate\s+)?valve|"
-    r"water\s+(?:valve|tee|bend|elbow)|"
+    r"water\s+(?:tee|bend|elbow)|"
     r"(?:\d+[-\s]?inch\s+)?(?:x\s*\d+[-\s]?inch\s+)?mj\s+(?:reducer|elbow|tee|bend)|"
     r"(?:\d+[-\s]?inch\s+)?(?:long\s+)?sleeve|"
     r"(?:\d+[-\s]?inch\s+)?plug\b|"
-    r"utility\s+locate|"
-    r"aggregate\s+base|"
-    r"geotextile|"
-    r"asphalt\s+concrete\s+pavement|"
-    r"concrete\s+curb\s+and\s+gutter"
+    r"utility\s+locate"
     r")",
     re.I,
 )
@@ -330,23 +307,13 @@ def analyze_content(
         except Exception as exc:
             errors.append(f"text AI: {exc}")
 
-        # Deterministic label pass — skip when EOQ/schedule text is present so plan
-        # fittings/valves do not flood extras (Training Test 2).
-        label_result = None
-        if not _content_has_eoq_schedule(content):
-            label_result = _analyze_utility_labels(
-                filename=filename,
-                content=content,
-                document_id=document_id,
-            )
-        else:
-            # Still allow sized water-main LF labels only (no fittings).
-            label_result = _analyze_utility_labels(
-                filename=filename,
-                content=content,
-                document_id=document_id,
-                mains_only=True,
-            )
+        # Full labels unless a Bid Items table was actually extracted (not just mentioned).
+        label_result = _analyze_utility_labels(
+            filename=filename,
+            content=content,
+            document_id=document_id,
+            mains_only=_pdf_has_copied_bid_table(content),
+        )
 
         if (
             settings.openai_pdf_vision_enabled
@@ -372,21 +339,29 @@ def analyze_content(
                 errors.append(f"drawing vision: {exc}")
 
         merged_parts = [r for r in (text_result, label_result, vision_result) if r]
+        merged: dict[str, Any] | None = None
         if len(merged_parts) >= 2:
             merged = merged_parts[0]
             for part in merged_parts[1:]:
                 merged = _merge_analysis_results(merged, part)
+        elif vision_result:
+            merged = vision_result
+        elif label_result and label_result.get("items"):
+            merged = label_result
+        elif text_result:
+            merged = text_result
+
+        if merged is not None:
             if errors:
-                merged["notes"] = (merged.get("notes") or "") + " | ".join(errors)
+                merged["notes"] = ((merged.get("notes") or "") + " | " + " | ".join(errors)).strip(" |")
+            if _takeoff_is_thin(merged.get("items") or [], content):
+                heuristic = _analyze_heuristic(
+                    filename=filename, content=content, document_id=document_id
+                )
+                merged = _merge_analysis_results(merged, heuristic)
+                note = "Augmented thin AI takeoff with heuristic civil extractor (no copied Bid Items table)."
+                merged["notes"] = ((merged.get("notes") or "") + " | " + note).strip(" |")
             return _finalize_analysis(merged, content=content)
-        if vision_result:
-            return _finalize_analysis(vision_result, content=content)
-        if label_result and label_result.get("items"):
-            return _finalize_analysis(label_result, content=content)
-        if text_result and text_result.get("items"):
-            return _finalize_analysis(text_result, content=content)
-        if text_result:
-            return _finalize_analysis(text_result, content=content)
 
         heuristic = _analyze_heuristic(filename=filename, content=content, document_id=document_id)
         if errors:
@@ -411,11 +386,11 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
             seen.add(key)
             items.append(it)
 
-    schedule_present = _content_has_eoq_schedule(content)
+    schedule_copied = _pdf_has_copied_bid_table(content)
 
-    # 2) Regex over free text — skip when a Bid Items / EOQ table is the pay-item source
+    # 2) Regex over free text — skip only when a Bid Items table was actually extracted
     text = content.text or ""
-    pattern_rows = () if schedule_present else CIVIL_PATTERNS
+    pattern_rows = () if schedule_copied else CIVIL_PATTERNS
     for desc, category, unit_hint, pattern in pattern_rows:
         if desc.lower() in seen:
             continue
@@ -456,7 +431,7 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
         filename=filename,
         content=content,
         document_id=document_id,
-        mains_only=_content_has_eoq_schedule(content),
+        mains_only=_pdf_has_copied_bid_table(content),
     )
     for it in (label_pack.get("items") or []):
         key = str(it.get("description") or "").lower()
@@ -472,7 +447,7 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
     if project_types:
         facts.append({"key": "project_types", "value": ", ".join(project_types)})
 
-    if not _content_has_eoq_schedule(content):
+    if not _pdf_has_copied_bid_table(content):
         for it in items_from_design_text(text, filename=filename):
             key = str(it.get("description") or "").lower()
             if not key or key in seen:
@@ -611,16 +586,17 @@ def _analyze_with_openai(
 ) -> dict[str, Any]:
     from app.services.openai_client import ask_openai_json
 
-    clipped = (content.text or "")[:50000]
-    tables_preview = json.dumps(content.tables[:12], ensure_ascii=True)[:18000]
-    design_takeoff = not _content_has_eoq_schedule(content)
-    system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog, design_takeoff=design_takeoff)
+    clipped = _text_for_openai(content, char_limit=80000)
+    tables_preview = json.dumps(_tables_for_openai(content), ensure_ascii=True)[:40000]
+    # Always allow plan takeoff. Copied bid tables are merged in finalize; never
+    # switch to "schedule only → omit pipe/paving/curb".
+    system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog, design_takeoff=True)
 
     design_or_schedule = (
-        "No EOQ/bid schedule was detected — act as a civil estimator and generate pay items from "
-        "typical sections, dimensions, and callouts (roads, utilities, dams, reservoirs, buildings)."
-        if design_takeoff
-        else "Harvest EVERY row from EOQ / Bid Items / quantity tables (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY or ITEM NO, STD BID NO, APPROX. QUANTITY). For a Traffic Control heading, copy every row in that section, including LS and Each companions, and the SqFt EST. QTY as printed."
+        "Copy every Bid Items / EOQ / EST. QTY / STD BID row if a quantity schedule is in this text. "
+        "Also extract other evidenced pay items from notes and tables (roads, utilities, dams, "
+        "reservoirs, buildings, removals, traffic control, paving, curb). "
+        "Traffic-control device lists / Project Totals are not the bid schedule."
     )
 
     user = f"""
@@ -744,6 +720,14 @@ def _analyze_pdf_drawings_with_vision(
 ) -> dict[str, Any]:
     from app.services.openai_client import ask_openai_vision_json
     from app.services.pdf_vision import iter_rendered_pdf_batches, plan_pdf_vision_pages
+    from app.config import get_settings
+
+    settings = get_settings()
+    file_bytes = 0
+    try:
+        file_bytes = pdf_path.stat().st_size
+    except OSError:
+        file_bytes = 0
 
     plan = plan_pdf_vision_pages(
         pdf_path,
@@ -752,13 +736,25 @@ def _analyze_pdf_drawings_with_vision(
         force_utility_pages=force_utility_pages,
         scan_all_pages=scan_all_pages,
         batch_pages=batch_pages,
+        page_texts=list(content.pages) if content and content.pages else None,
+        file_bytes=file_bytes,
+        large_page_threshold=settings.openai_vision_large_page_threshold,
+        large_file_mb=settings.openai_vision_large_file_mb,
+        large_max_pages=settings.openai_vision_large_max_pages,
     )
     if not plan.selected_pages:
         raise RuntimeError("No PDF pages could be rendered for vision")
 
-    design_takeoff = not _content_has_eoq_schedule(content)
+    if plan.large_document:
+        batch_pages = min(int(batch_pages or 4), int(settings.openai_vision_large_batch_pages or 2))
+        dpi = int(settings.openai_vision_large_dpi or dpi or 150)
+    vision_budget = float(settings.openai_vision_max_seconds or 0)
+    if plan.large_document:
+        large_budget = float(settings.openai_vision_large_max_seconds or 0)
+        vision_budget = large_budget if large_budget else vision_budget
+
     system, catalog_rules, code_hint = _catalog_prompt_bits(
-        bid_catalog, design_takeoff=design_takeoff
+        bid_catalog, design_takeoff=True
     )
 
     # Hint model with OCR snippets that look like water-main labels
@@ -779,13 +775,9 @@ def _analyze_pdf_drawings_with_vision(
         + " "
         + code_hint
         + " Prefer EOQ/bid schedules on sheets when present. Merge (Ctd.) pages. "
-        + (
-            "No schedule: generate civil-estimator EOQ from typical sections, dimensions, and counts. "
-            "Do not take off incidental trench/bedding/fittings or add them into pipe quantities."
-            if design_takeoff
-            else "Do not invent fittings/valves from plan details when a schedule exists. "
-            "Do not take off incidental work or add it into a parent bid-item quantity."
-        )
+        + "Keep evidenced plan pay items (pipe, pavement, curb, hydrant, removals). "
+        + "Do not take off incidental trench/bedding/fittings or add them into parent quantities. "
+        + "Do not add MUTCD sign faces or graphic channelizers as extra bid items."
     )
     all_items: list[dict[str, Any]] = []
     all_facts: list[Any] = []
@@ -793,8 +785,25 @@ def _analyze_pdf_drawings_with_vision(
     vision_pages_meta: list[dict[str, Any]] = []
     batch_errors: list[str] = []
     batch_index = 0
+    started = time.monotonic()
+    budget_stopped = False
 
     for batch in iter_rendered_pdf_batches(pdf_path, plan, dpi=dpi, batch_pages=batch_pages):
+        if not batch:
+            continue
+        elapsed = time.monotonic() - started
+        if vision_budget > 0 and elapsed >= vision_budget:
+            remaining = [
+                p
+                for p in plan.selected_pages
+                if p not in {m["page"] for m in vision_pages_meta}
+            ]
+            batch_errors.append(
+                f"Stopped vision after {int(elapsed)}s (budget {int(vision_budget)}s). "
+                f"Bid/qty sheets are scanned first; skipped remaining page(s) {remaining[:24]}."
+            )
+            budget_stopped = True
+            break
         batch_index += 1
         page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in batch)
         images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
@@ -804,37 +813,17 @@ def _analyze_pdf_drawings_with_vision(
             f"Document has {plan.page_count} page(s); this request covers pages "
             f"{[p.page for p in batch]}. Extract ALL bid/takeoff items visible on THESE sheets only."
         )
-        sheet_job = (
-            """
+        sheet_job = """
 Primary job:
-- If an Estimate Of Quantities / bid quantity table appears, extract EVERY row (LEFT then RIGHT).
-- Continuation “(Ctd.)” keeps the parent category. Include Alternates, LS, Traffic Control, Removals, landscaping.
-- Copy APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a project total.
-- On sheets WITHOUT an EOQ table: take off pay items as a civil estimator from typical sections, dimensions,
-  hatch areas, and printed counts (roads, utilities, dams/reservoirs, buildings). Show formulas in calculation_method.
-  Assumed HMA 145 pcf — write assumptions down. Do not invent trench/bedding/backfill or fittings unless they
-  are printed as pay items. Never add incidental work into a parent quantity.
+- If a Bid Items / Estimate Of Quantities table is visible on THESE sheets (ITEM NUMBER, BID ITEM,
+  DESCRIPTION, UNITS, EST. QTY or STD BID NO / APPROX. QUANTITY), copy EVERY row left then right.
+  Traffic-control device tables (“Project Totals”, itemized device lists) are NOT that bid schedule.
+- Also extract ALL other printed pay items on these sheets: General/LS, Traffic Control bid rows
+  (not MUTCD sign faces), Removals, grading, erosion/landscaping, HMA/surfacing, curb/gutter/sidewalk,
+  storm, watermain, sanitary, signals/lighting, dams/buildings when shown.
+- Do not invent trench/bedding/backfill/fittings unless printed as pay items.
+- Do not add channelizers or individual MUTCD signs from traffic-control graphics.
 """
-            if design_takeoff
-            else """
-Primary job:
-- If an Estimate Of Quantities / Bid Items table appears (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY
-  or ITEM NO / STD BID NO / APPROX. QUANTITY), extract EVERY row from LEFT then RIGHT. That schedule is the
-  ONLY source for pay items on that sheet.
-- Traffic Control section: copy EVERY row under the heading — not only the SqFt signing line. Typical companions:
-  Traffic Control (SqFt = EST. QTY), Traffic Control Miscellaneous (LS), barricades (Each), temporary business
-  signs, portable changeable message signs, temporary mailbox, temporary gravel access (LS), winter maintenance (LS).
-  Copy the BID ITEM number (e.g. 634.0110 or Special). Do not recompute Traffic Control SqFt from MUTCD 30×30.
-  Do not add channelizers or MUTCD signs from F-sheet graphics or device “Project Totals” tables.
-- Continuation: if the header says “(Ctd.)” / Continued, keep extracting rows into the parent category.
-- Include Alternates, LS/general, Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
-- Copy the EST. QTY / APPROX. QUANTITY from the schedule cell. Do not count symbols when the schedule shows a total.
-- On pure plan/profile/detail sheets WITHOUT an EOQ/Bid Items table: do not invent water fittings, valves,
-  hydrants, casing/carrier segments, pavement layers, or extra traffic devices from symbols.
-- Incidental notes (incidental to / included in / no separate payment): omit those items entirely. Do not add
-  their counts or volumes into the parent bid item.
-"""
-        )
         user = f"""
 You are looking at RENDERED ENGINEERING PLAN SHEETS from a civil PDF (not just OCR text).
 
@@ -872,11 +861,15 @@ Return JSON:
         except Exception as exc:
             batch_errors.append(f"batch {batch_index} pages {[p.page for p in batch]}: {exc}")
             continue
+        finally:
+            for img in images:
+                img["png_b64"] = ""
+            images.clear()
         batch_items = _items_from_openai_payload(
             data,
             filename=filename,
             document_id=document_id,
-            default_method="OpenAI vision — engineering drawing sheet",
+            default_method="OpenAI vision — plan sheet",
         )
         all_items.extend(batch_items)
         all_facts.extend(data.get("facts") or [])
@@ -895,14 +888,21 @@ Return JSON:
         },
     )
     items = merged_pack.get("items") or all_items
-    scanned = len(plan.selected_pages)
+    scanned_pages = sorted({int(m["page"]) for m in vision_pages_meta})
+    skipped_render = [p for p in plan.selected_pages if p not in scanned_pages]
+    scanned = len(scanned_pages)
     summary = (
         f"Vision-analyzed {scanned}/{plan.page_count} page(s) from '{filename}' "
         f"in {batch_index} batch(es)."
     )
     if summaries:
         summary = f"{summary} {' '.join(summaries[:3])}"
-    if plan.truncated:
+    if plan.large_document:
+        summary += (
+            f" Large plan set ({plan.page_count} page(s)): vision scans every page in batches "
+            f"({len(plan.selected_pages)} queued). Completeness over speed — this can take over an hour."
+        )
+    elif plan.truncated:
         summary += (
             f" Safety cap skipped {len(plan.skipped_pages)} page(s) "
             f"(set OPENAI_VISION_MAX_PAGES=0 and OPENAI_VISION_SCAN_ALL_PAGES=true for full scan)."
@@ -918,18 +918,21 @@ Return JSON:
         "needs_review": bool(merged_pack.get("needs_review"))
         or len(items) == 0
         or plan.truncated
-        or bool(batch_errors),
+        or bool(batch_errors)
+        or budget_stopped,
         "vision_pages": vision_pages_meta,
         "notes": (" | ".join(batch_errors) if batch_errors else None),
         "vision_coverage": {
             "page_count": plan.page_count,
-            "selected_pages": plan.selected_pages,
-            "skipped_pages": plan.skipped_pages,
-            "truncated": plan.truncated,
-            "scan_all": plan.scan_all,
+            "selected_pages": scanned_pages or plan.selected_pages,
+            "skipped_pages": plan.skipped_pages + skipped_render,
+            "truncated": plan.truncated or budget_stopped or bool(skipped_render),
+            "scan_all": plan.scan_all and not budget_stopped,
             "batch_pages": batch_pages,
             "batches": batch_index,
             "forced_utility_pages": plan.forced_utility_pages,
+            "budget_stopped": budget_stopped,
+            "large_document": plan.large_document,
         },
     }
 
@@ -972,7 +975,7 @@ def _should_drop_incidental_item(item: dict[str, Any]) -> bool:
 
 
 def _is_plan_invent_extra(item: dict[str, Any]) -> bool:
-    """F-sheet devices, symbol counts, MUTCD rollups, assumed trench, typical sections."""
+    """Traffic-control device graphics / assumed trench — not core pay items."""
     from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
 
     if looks_like_agency_bid_number(item.get("item_code")):
@@ -981,36 +984,28 @@ def _is_plan_invent_extra(item: dict[str, Any]) -> bool:
         return True
     blob = _item_evidence_blob(item)
     if any(h in blob for h in _PLAN_INVENT_HINTS):
-        # Vision may still cite a bid table in the same blob — that is a schedule row.
         if any(h in blob for h in _SCHEDULE_METHOD_HINTS):
             return False
         return True
     entity = str(item.get("entity_type") or "").upper()
-    if entity == "ESTIMATOR":
-        return True
-    if re.search(r"\bsheet f\d", blob) and any(
-        h in blob for h in ("graphic", "symbol", "project total", "itemized", "measured", "approximate")
-    ):
-        return True
-    return False
+    return entity == "ESTIMATOR"
 
 
 def _method_rank(item: dict[str, Any]) -> int:
-    """Higher = more trustworthy evidence for EOQ accuracy."""
-    if _is_plan_invent_extra(item):
-        return 0
+    """Higher = more trustworthy evidence when merging duplicates. Never zero-rank vision plan sheets."""
+    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
+
+    blob = _item_evidence_blob(item)
+    if "engineering drawing sheet" in blob or "openai vision — plan sheet" in blob:
+        if _is_schedule_pay_item(item):
+            return 3
+        return 1
     if _is_schedule_pay_item(item):
         return 3
-    method = _item_evidence_blob(item)
-    desc = str(item.get("description") or "")
-    if _GENERIC_INFERRED_DESC.search(desc) and any(
-        h in method for h in ("label", "callout", "drawing", "symbol", "geometry")
-    ):
+    if is_plan_device_takeoff(item) and not looks_like_agency_bid_number(item.get("item_code")):
         return 0
-    if any(h in method for h in ("label", "callout")):
+    if any(h in blob for h in _DERIVED_METHOD_HINTS):
         return 1
-    if any(h in method for h in _DERIVED_METHOD_HINTS):
-        return 0
     return 1
 
 
@@ -1035,6 +1030,7 @@ def _is_plan_derived(item: dict[str, Any]) -> bool:
             "graphic count",
             "project total",
             "itemized table",
+            "itemized list",
             "typical section",
             "inferred",
         )
@@ -1050,7 +1046,16 @@ def _table_header_text(table: dict[str, Any]) -> str:
 
 def _is_plan_device_table(table: dict[str, Any]) -> bool:
     header = _table_header_text(table)
-    return any(k in header for k in ("project total", "project totals", "itemized"))
+    return any(
+        k in header
+        for k in (
+            "project total",
+            "project totals",
+            "itemized",
+            "channelizer",
+            "mutcd",
+        )
+    )
 
 
 def _is_bid_schedule_table(table: dict[str, Any]) -> bool:
@@ -1068,20 +1073,50 @@ def _is_bid_schedule_table(table: dict[str, Any]) -> bool:
             "approx. quantity",
             "approx quantity",
             "bid item",
-            "item description",
             "for bidding",
             "proposal quantity",
         )
     ):
         return True
+    # Generic Description / Unit / Qty is common on F-sheets. Only treat it as the
+    # project bid schedule when several agency bid numbers appear in the body.
     if (
         ("description" in header or "particular" in header)
         and ("quantity" in header or "qty" in header)
         and ("unit" in header)
         and not any(k in header for k in ("tjb", "fjb", "fitting", "locator", "channelizer"))
     ):
-        return True
+        body = " ".join(
+            str(c or "")
+            for row in (table.get("rows") or [])[1:40]
+            for c in row
+        )
+        codes = re.findall(r"\b\d{1,4}\.\d{2,4}[a-z]?\b", body, flags=re.I)
+        return len({c.lower() for c in codes}) >= 5
     return False
+
+
+def _pdf_has_copied_bid_table(content: ExtractedContent | None) -> bool:
+    """True only when pdfplumber actually extracted a Bid Items / EOQ table."""
+    if not content:
+        return False
+    return any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows"))
+
+
+def _takeoff_is_thin(items: list[dict[str, Any]], content: ExtractedContent | None) -> bool:
+    """True when AI returned a callout scrap instead of a project EOQ."""
+    if _pdf_has_copied_bid_table(content):
+        return False
+    n = sum(1 for i in items if str(i.get("description") or "").strip())
+    pages = 1
+    if content is not None:
+        try:
+            pages = int(content.page_count or 1)
+        except (TypeError, ValueError):
+            pages = 1
+    if n < 20:
+        return True
+    return pages >= 15 and n < 30
 
 
 _QTY_COL_NAMES = (
@@ -1258,55 +1293,110 @@ def _content_has_eoq_schedule(content: ExtractedContent | None) -> bool:
     if not content:
         return False
     blob = (content.text or "").lower()
-    if "estimate of quantities" in blob:
+    if "itemized list" in blob and "est. qty" not in blob and "std bid" not in blob:
+        # F-sheet device lists often mention quantities; that is not a Bid Items table.
+        blob_for_detect = blob.replace("itemized list", " ")
+    else:
+        blob_for_detect = blob
+    if "estimate of quantities" in blob_for_detect:
         return True
-    if re.search(r"\bbid items\b", blob) and any(
-        k in blob
+    if re.search(r"\bbid items\b", blob_for_detect) and any(
+        k in blob_for_detect
         for k in (
             "est. qty",
             "est qty",
             "std bid",
-            "item description",
             "approx. quantity",
             "approx quantity",
-            "bid item",
+            "for bidding purposes",
         )
     ):
         return True
-    if any(
-        k in blob
+    return any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows"))
+
+
+def _has_authoritative_schedule(
+    content: ExtractedContent | None,
+    items: list[dict[str, Any]],
+) -> bool:
+    """True only when a real Bid Items / EOQ table was captured — not an F-sheet list."""
+    from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
+
+    if content and any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows")):
+        return True
+    coded = 0
+    strong = 0
+    for item in items:
+        if is_plan_device_takeoff(item):
+            continue
+        blob = _item_evidence_blob(item)
+        if "itemized list" in blob or re.search(r"\bsheet f\d", blob):
+            continue
+        if looks_like_agency_bid_number(item.get("item_code")):
+            coded += 1
+            continue
+        if any(
+            h in blob
+            for h in (
+                "estimate of quantities",
+                "est. qty",
+                "std bid",
+                "approx. quantity",
+                "for bidding purposes",
+            )
+        ):
+            strong += 1
+    return coded >= 5 or strong >= 8
+
+
+def _page_looks_like_bid_schedule(text: str) -> bool:
+    low = (text or "").lower()
+    if "itemized list" in low or "project totals" in low:
+        return False
+    return any(
+        k in low
         for k in (
-            "item description",
-            "approx. quantity",
-            "approx quantity",
-            "std bid",
-            "standard bid",
-            "for bidding purposes only",
+            "estimate of quantities",
             "est. qty",
             "est qty",
+            "std bid",
+            "approx. quantity",
+            "approx quantity",
+            "for bidding purposes",
         )
-    ) and any(k in blob for k in ("quantity", "unit", "item")):
-        return True
-    return any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows"))
+    ) or (
+        re.search(r"\bbid items\b", low)
+        and any(k in low for k in ("est. qty", "est qty", "std bid", "item number", "units"))
+    )
+
+
+def _text_for_openai(content: ExtractedContent, *, char_limit: int = 80000) -> str:
+    """Put Bid Items / EOQ pages first so a 50k clip is not only F-sheets / notes."""
+    pages = list(content.pages or [])
+    if pages:
+        bid_pages = [p for p in pages if _page_looks_like_bid_schedule(p.text)]
+        other = [p for p in pages if p not in bid_pages]
+        ordered = bid_pages + other
+        text = "\n\n".join(f"--- Page {p.page} ---\n{p.text}" for p in ordered if (p.text or "").strip())
+        if text.strip():
+            return text[:char_limit]
+    return (content.text or "")[:char_limit]
+
+
+def _tables_for_openai(content: ExtractedContent) -> list[dict[str, Any]]:
+    """Send real bid-schedule tables first; skip F-sheet device tables."""
+    tables = [t for t in (content.tables or []) if t.get("rows")]
+    schedule = [t for t in tables if _is_bid_schedule_table(t)]
+    rest = [t for t in tables if t not in schedule and not _is_plan_device_table(t)]
+    return (schedule + rest)[:40]
 
 
 def _should_drop_inferred_extra(
     item: dict[str, Any],
     *,
-    schedule_present: bool,
+    schedule_present: bool = False,
 ) -> bool:
-    """When a Bid Items / EOQ table exists, keep schedule rows and drop F-sheet invents."""
-    if not schedule_present:
-        return False
-    if _looks_like_schedule_item(item):
-        return False
-    desc = str(item.get("description") or "").strip()
-    if not desc:
-        return True
-    if _is_plan_invent_extra(item) or _is_plan_derived(item):
-        return True
-    if _GENERIC_INFERRED_DESC.search(desc) and _method_rank(item) <= 1:
-        return True
+    """Kept for tests/callers. Never deletes pipe/paving/curb because a schedule exists."""
     return False
 
 
@@ -1403,17 +1493,8 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
         out["notes"] = ((out.get("notes") or "") + " | " + note).strip(" |")
         return out
 
-    schedule_present = _content_has_eoq_schedule(content) or any(
-        _looks_like_schedule_item(i) for i in items
-    )
-
-    cleaned: list[dict[str, Any]] = []
-    dropped = 0
-    for item in items:
-        if _should_drop_inferred_extra(item, schedule_present=schedule_present):
-            dropped += 1
-            continue
-        cleaned.append(item)
+    schedule_present = _has_authoritative_schedule(content, items)
+    cleaned = list(items)
 
     before_combine = len(cleaned)
     cleaned = combine_similar_pay_items(cleaned)
@@ -1445,11 +1526,6 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
         )
         out["notes"] = ((out.get("notes") or "") + " | " + comb_note).strip(" |")
         out["summary"] = f"{(out.get('summary') or '')} {comb_note}".strip()
-    if dropped:
-        note = f"Filtered {dropped} low-evidence inferred item(s) (schedule-first policy)."
-        out["notes"] = ((out.get("notes") or "") + " | " + note).strip(" |")
-        summary = out.get("summary") or ""
-        out["summary"] = f"{summary} {note}".strip()
     if tc_meta.get("sign_rows"):
         tc_note = (
             f"Rolled {tc_meta['sign_rows']} traffic sign(s) into Traffic Control "

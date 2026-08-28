@@ -388,6 +388,8 @@ def resolve_eoq_group(
     category: str | None = None,
 ) -> str:
     """Return canonical EOQ section name for an EOQ line."""
+    if looks_like_mobilization(description):
+        return "General"
     cat = (category or "").strip()
     cat_low = cat.lower()
     if cat_low in {"general / traffic control", "general/traffic control"}:
@@ -446,9 +448,8 @@ def group_items(
 ) -> list[tuple[str, list[T]]]:
     """Partition items into ordered (group_name, items) sections. Empty groups omitted.
 
-    When repeat_mobilization is True (UI/Excel), Mobilization is listed under both
-    General and Traffic Control. Persistence should leave this False so the pay item
-    is stored once.
+    When repeat_mobilization is True (Excel), Mobilization is listed at the top of General.
+    It is never copied into Traffic Control.
     """
     buckets: dict[str, list[T]] = {}
     for item in items:
@@ -457,22 +458,23 @@ def group_items(
             category=get_category(item),
         )
         buckets.setdefault(group, []).append(item)
-    if repeat_mobilization:
-        mobs = [
-            item
-            for rows in buckets.values()
-            for item in rows
-            if looks_like_mobilization(get_description(item))
-        ]
-        if mobs:
-            gen = buckets.setdefault("General", [])
-            for mob in reversed(mobs):
-                if mob not in gen:
-                    gen.insert(0, mob)
-            tc = buckets.setdefault("Traffic Control", [])
-            for mob in reversed(mobs):
-                if mob not in tc:
-                    tc.insert(0, mob)
+    mobs = [
+        item
+        for rows in buckets.values()
+        for item in rows
+        if looks_like_mobilization(get_description(item))
+    ]
+    if mobs:
+        for name in list(buckets.keys()):
+            if name == "General":
+                continue
+            buckets[name] = [i for i in buckets[name] if not looks_like_mobilization(get_description(i))]
+            if not buckets[name]:
+                del buckets[name]
+        gen = buckets.setdefault("General", [])
+        for mob in reversed(mobs):
+            if mob not in gen:
+                gen.insert(0, mob)
     ordered: list[tuple[str, list[T]]] = []
     for name in EOQ_GROUP_ORDER:
         if name in buckets and buckets[name]:

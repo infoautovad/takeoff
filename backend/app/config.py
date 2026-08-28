@@ -41,6 +41,18 @@ class Settings(BaseSettings):
     openai_vision_min_score: float = 18.0
     # When not scanning all pages, still force-include utility/schedule sheets
     openai_vision_force_utility_pages: bool = True
+    # Seconds per OpenAI HTTP call (one batch). Stuck batch is skipped; remaining pages still run.
+    openai_request_timeout_seconds: float = 600.0
+    openai_max_retries: int = 1
+    # Wall-clock budget for ALL vision batches. 0 = scan every page with no time cap.
+    openai_vision_max_seconds: float = 0.0
+    # Large files: smaller batches for RAM only. 0 max pages / 0 seconds = no skip.
+    openai_vision_large_page_threshold: int = 80
+    openai_vision_large_file_mb: int = 80
+    openai_vision_large_max_pages: int = 0
+    openai_vision_large_batch_pages: int = 2
+    openai_vision_large_dpi: int = 150
+    openai_vision_large_max_seconds: float = 0.0
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
     # 0 = unlimited upload size (no MB cap on document / bid uploads).

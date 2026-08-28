@@ -240,6 +240,7 @@ function matchDescription(text: string): string | null {
 }
 
 export function resolveEoqGroup(description?: string | null, category?: string | null): string {
+  if (looksLikeMobilization(description)) return 'General'
   const cat = (category || '').trim()
   const catLow = cat.toLowerCase()
   if (catLow === 'general / traffic control' || catLow === 'general/traffic control') {
@@ -285,16 +286,18 @@ export function groupEoqItems<T extends { description?: string | null; category?
   }
   const mobs = items.filter((item) => looksLikeMobilization(item.description))
   if (mobs.length) {
+    for (const [name, list] of [...buckets.entries()]) {
+      if (name === 'General') continue
+      buckets.set(
+        name,
+        list.filter((item) => !looksLikeMobilization(item.description)),
+      )
+    }
     const gen = buckets.get('General') || []
     for (const mob of [...mobs].reverse()) {
       if (!gen.includes(mob)) gen.unshift(mob)
     }
     buckets.set('General', gen)
-    const tc = buckets.get('Traffic Control') || []
-    for (const mob of [...mobs].reverse()) {
-      if (!tc.includes(mob)) tc.unshift(mob)
-    }
-    buckets.set('Traffic Control', tc)
   }
   const ordered: EoqGroupSection<T & { display_number: number }>[] = []
   let serial = 1

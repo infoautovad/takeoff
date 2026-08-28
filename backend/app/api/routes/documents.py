@@ -60,18 +60,17 @@ async def upload_document(
             detail=f"Unsupported file type '.{ext}'. Allowed: {', '.join(sorted(settings.allowed_extension_list))}",
         )
 
-    data = await file.read()
-    # max_upload_size_mb <= 0 means unlimited (no size rejection).
+    key = storage_service.build_key(project_id, file.filename)
+    max_bytes = None
     if settings.max_upload_size_mb > 0:
         max_bytes = settings.max_upload_size_mb * 1024 * 1024
-        if len(data) > max_bytes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"File exceeds {settings.max_upload_size_mb} MB limit",
-            )
-
-    key = storage_service.build_key(project_id, file.filename)
-    await storage_service.save_file(key, data)
+    try:
+        file_size = await storage_service.save_upload_file(key, file, max_bytes=max_bytes)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if file_size <= 0:
+        storage_service.delete_file(key)
+        raise HTTPException(status_code=400, detail="Empty file")
 
     document = Document(
         project_id=project_id,
@@ -80,7 +79,7 @@ async def upload_document(
         stored_filename=Path(key).name,
         storage_key=key,
         content_type=file.content_type or guess_content_type(file.filename),
-        file_size=len(data),
+        file_size=file_size,
         document_type=detect_document_type(file.filename),
         processing_status=ProcessingStatus.UPLOADED,
         revision_label=revision_label,

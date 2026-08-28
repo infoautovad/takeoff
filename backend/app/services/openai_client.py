@@ -37,8 +37,8 @@ def get_openai_client():
     # Retries stay low so a stuck call does not multiply wait time endlessly.
     return OpenAI(
         api_key=get_settings().openai_api_key.strip(),
-        timeout=3600.0,  # 60 minutes per OpenAI request
-        max_retries=2,
+        timeout=float(get_settings().openai_request_timeout_seconds or 180.0),
+        max_retries=int(get_settings().openai_max_retries or 0),
     )
 
 
@@ -125,13 +125,22 @@ def _ask_openai(
             }
             if use_temp:
                 kwargs["temperature"] = temperature
+            kwargs["max_output_tokens"] = 16384
             response = client.responses.create(**kwargs)
             text = getattr(response, "output_text", None) or _responses_text(response)
             if text and text.strip():
                 return text
             errors.append("Responses API returned empty output_text")
+            if image_parts:
+                raise RuntimeError(
+                    f"OpenAI vision returned empty output for model '{model}'."
+                )
         except Exception as exc:
             errors.append(f"Responses API: {exc}")
+            if image_parts:
+                raise RuntimeError(
+                    f"OpenAI vision call failed for model '{model}'. {exc}"
+                ) from exc
 
         if not image_parts:
             try:

@@ -148,7 +148,7 @@ def test_ensure_mobilization_item_always_one_ls_under_general():
     by_name = {name: rows for name, rows in sections}
     assert "General" in by_name and "Traffic Control" in by_name
     assert any(i["description"] == "Mobilization" for i in by_name["General"])
-    assert any(i["description"] == "Mobilization" for i in by_name["Traffic Control"])
+    assert not any(i["description"] == "Mobilization" for i in by_name["Traffic Control"])
     assert any(i["description"] == "Traffic Control" for i in by_name["Traffic Control"])
 
 

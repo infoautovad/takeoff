@@ -125,6 +125,7 @@ _PLAN_DEVICE_HINTS = (
     "symbols",
     "project total",
     "itemized table",
+    "itemized list",
     "mutcd ref",
     "consolidated",
     "in²",
