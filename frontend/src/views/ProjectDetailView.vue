@@ -71,7 +71,8 @@ const analyzeStatus = ref<'running' | 'success' | 'error' | 'cancelled'>('runnin
 const analyzeStatusMessage = ref('')
 let analyzeAbort: AbortController | null = null
 let analyzeProgressTimer: ReturnType<typeof setInterval> | null = null
-let analyzeStartedAt = 0
+let analyzeTargetDocIds: number[] = []
+let analyzePollInFlight = false
 
 const pdfAnalyzeStages = [
   { at: 8, label: 'Opening plan file…' },
@@ -447,36 +448,77 @@ function clearAnalyzeProgressTimer() {
   }
 }
 
-function startAnalyzeProgress(label: string, cad = false) {
+function getAnalyzeTargetDocs() {
+  if (!analyzeTargetDocIds.length) return []
+  return store.documents.filter((doc) => analyzeTargetDocIds.includes(doc.id))
+}
+
+function refreshAnalyzeProgressFromLocalStatus() {
+  const docs = getAnalyzeTargetDocs()
+  if (!docs.length) return
+  const total = docs.length
+  const completed = docs.filter((d) => d.processing_status === 'completed').length
+  const failed = docs.filter((d) => d.processing_status === 'failed').length
+  const processing = docs.filter((d) => d.processing_status === 'processing').length
+  const queued = docs.filter((d) => d.processing_status === 'queued').length
+  const uploaded = docs.filter((d) => d.processing_status === 'uploaded').length
+  const done = completed + failed
+  const weighted = completed + failed + processing * 0.65 + queued * 0.3 + uploaded * 0.08
+  const next = done >= total ? 100 : Math.min(99, Math.max(3, (weighted / total) * 100))
+  analyzeProgress.value = Math.round(next * 10) / 10
+
+  if (done >= total) {
+    analyzeStage.value = failed ? `Completed with ${failed} failed file(s)` : 'Analysis complete'
+  } else if (processing > 0) {
+    analyzeStage.value = `Server processing ${processing}/${total} file(s)…`
+  } else if (queued > 0) {
+    analyzeStage.value = `Queued ${queued}/${total} file(s)…`
+  } else {
+    analyzeStage.value = 'Preparing analysis…'
+  }
+
+  if (analyzeStatus.value === 'running') {
+    analyzeStatusMessage.value =
+      `Processed ${done}/${total} file(s) · ${completed} completed` +
+      (failed ? ` · ${failed} failed` : '')
+  }
+}
+
+async function pollAnalyzeStatuses() {
+  if (analyzeStatus.value !== 'running' || analyzePollInFlight) return
+  analyzePollInFlight = true
+  try {
+    await store.fetchDocuments(projectId.value)
+    refreshAnalyzeProgressFromLocalStatus()
+  } catch {
+    // Keep previous progress on transient polling failures.
+  } finally {
+    analyzePollInFlight = false
+  }
+}
+
+function startAnalyzeProgress(label: string, cad = false, targetDocIds: number[] = []) {
   analyzeStages.value = cad ? cadAnalyzeStages : pdfAnalyzeStages
   analyzeTargetLabel.value = label
+  analyzeTargetDocIds = targetDocIds.length ? [...targetDocIds] : store.documents.map((d) => d.id)
   analyzeProgress.value = 3
   analyzeStage.value = cad ? 'Preparing CAD processing…' : 'Preparing analysis…'
   analyzeStatus.value = 'running'
-  analyzeStatusMessage.value = ''
+  analyzeStatusMessage.value = 'Waiting for live server status…'
   analyzeCancelConfirm.value = false
   analyzeModal.value = true
-  analyzeStartedAt = Date.now()
   clearAnalyzeProgressTimer()
+  refreshAnalyzeProgressFromLocalStatus()
+  void pollAnalyzeStatuses()
   analyzeProgressTimer = setInterval(() => {
-    if (analyzeStatus.value !== 'running') return
-    const next = Math.min(94, analyzeProgress.value + (analyzeProgress.value < 40 ? 1.4 : analyzeProgress.value < 70 ? 0.7 : 0.35))
-    analyzeProgress.value = Math.round(next * 10) / 10
-    const elapsedMin = Math.floor((Date.now() - analyzeStartedAt) / 60000)
-    if (analyzeProgress.value >= 94) {
-      analyzeStage.value =
-        elapsedMin >= 1
-          ? `Still scanning every page (${elapsedMin} min). Large files can take 60+ minutes. The bar stays at 94% until Analyze finishes.`
-          : 'Waiting for the server — this is not a confidence score'
-      return
-    }
-    const stage = [...analyzeStages.value].reverse().find((s) => analyzeProgress.value >= s.at)
-    if (stage) analyzeStage.value = stage.label
-  }, 420)
+    void pollAnalyzeStatuses()
+  }, 1500)
 }
 
 function finishAnalyzeProgress(ok: boolean, message = '') {
   clearAnalyzeProgressTimer()
+  analyzeTargetDocIds = []
+  analyzePollInFlight = false
   if (ok) {
     analyzeProgress.value = 100
     analyzeStage.value = 'Analysis complete'
@@ -510,6 +552,8 @@ function confirmCancelAnalyze() {
     analyzeAbort = null
   }
   clearAnalyzeProgressTimer()
+  analyzeTargetDocIds = []
+  analyzePollInFlight = false
   analyzeStatus.value = 'cancelled'
   analyzeStage.value = 'Cancelled by user'
   analyzeStatusMessage.value = 'Analysis was cancelled. Partial server work may still finish in the background — re-run Analyze if needed.'
@@ -542,7 +586,11 @@ async function runAnalyzeAll() {
   analyzeAbort = new AbortController()
   const hasCad = store.documents.some((d) => isCadDocument(d))
   const hasPdf = store.documents.some((d) => !isCadDocument(d))
-  startAnalyzeProgress(`${store.documents.length || 'all'} project file(s)`, hasCad && !hasPdf)
+  startAnalyzeProgress(
+    `${store.documents.length || 'all'} project file(s)`,
+    hasCad && !hasPdf,
+    store.documents.map((d) => d.id),
+  )
   try {
     const results = await analyzeProject(projectId.value, { signal: analyzeAbort.signal })
     const failed = results.filter((r) => r.status === 'failed')
@@ -579,7 +627,7 @@ async function runAnalyzeOne(documentId: number) {
   analyzing.value = true
   analyzeError.value = null
   analyzeAbort = new AbortController()
-  startAnalyzeProgress(doc?.original_filename || `Document #${documentId}`, cad)
+  startAnalyzeProgress(doc?.original_filename || `Document #${documentId}`, cad, [documentId])
   try {
     const result = await analyzeDocument(documentId, { signal: analyzeAbort.signal })
     await store.fetchProject(projectId.value)
@@ -612,6 +660,8 @@ async function runAnalyzeOne(documentId: number) {
 onUnmounted(() => {
   clearAnalyzeProgressTimer()
   analyzeAbort?.abort()
+  analyzeTargetDocIds = []
+  analyzePollInFlight = false
 })
 async function runGenerateEoq(documentIds?: number[]) {
   eoqLoading.value = true

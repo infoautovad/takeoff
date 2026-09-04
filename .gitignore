@@ -10,6 +10,7 @@ backend/Scripts/
 backend/.env
 backend/storage/
 backend/*.db
+backend/autovad.db
 backend/civilmind.db
 
 # TypeScript build cache
@@ -27,8 +28,6 @@ Thumbs.db
 .vscode/
 *.log
 
-terraform/
-
 # Ignore local secrets / state
 *.tfvars
 !terraform.tfvars.example
@@ -37,4 +36,7 @@ terraform/
 *.tfstate.*
 crash.log
 override.tf
+
+# Office temporary lock files
+~$*.docx
 

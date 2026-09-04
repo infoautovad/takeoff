@@ -146,6 +146,51 @@ def test_build_quantities_gold_pipes_plus_trench():
     assert any("Trench Excavation" in str(i.get("description")) for i in items)
 
 
+def test_build_quantities_metric_units_convert_to_feet():
+    extraction = {
+        "format": "synthetic",
+        "units": "m",
+        "pipes": [
+            {"name": "WM-8", "layer": "P_WATER", "length": 100, "diameter": 8, "network": "water"},
+        ],
+        "blocks": [],
+        "surfaces": [],
+        "lines": [],
+        "polylines": [],
+        "hatches": [],
+        "alignments": [],
+        "volumes": [],
+        "texts": [],
+    }
+    items = build_quantities(extraction, source_label="metric.dwg")
+    main = next(i for i in items if "8-Inch Water Main" in str(i.get("description")))
+    assert abs(float(main["quantity"]) - 328.08) < 0.25
+    assert "assumed feet" not in str(main.get("calculation_method") or "").lower()
+
+
+def test_build_quantities_unitless_marks_scale_assumption_for_review():
+    extraction = {
+        "format": "synthetic",
+        "units": "0",
+        "pipes": [
+            {"name": "WM-8", "layer": "P_WATER", "length": 100, "diameter": 8, "network": "water"},
+        ],
+        "blocks": [],
+        "surfaces": [],
+        "lines": [],
+        "polylines": [],
+        "hatches": [],
+        "alignments": [],
+        "volumes": [],
+        "texts": [],
+    }
+    items = build_quantities(extraction, source_label="unitless.dwg")
+    main = next(i for i in items if "8-Inch Water Main" in str(i.get("description")))
+    assert "assumed feet" in str(main.get("calculation_method") or "").lower()
+    assert float(main.get("confidence") or 0) <= 84.0
+    assert bool(main.get("needs_review")) is True
+
+
 def test_apply_cad_label_enrichment_never_changes_qty_or_count():
     original = [
         {"description": "Utility Pipe", "unit": "LF", "quantity": 500.0, "category": "Utilities", "confidence": 80},

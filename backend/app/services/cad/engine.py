@@ -19,6 +19,15 @@ from app.services.storage import storage_service
 from app.config import get_settings
 
 
+def _clip_rows(rows: list[dict[str, Any]] | list[Any], limit: int) -> tuple[list[Any], int]:
+    if limit <= 0:
+        return list(rows), 0
+    total = len(rows)
+    if total <= limit:
+        return list(rows), 0
+    return list(rows)[:limit], total - limit
+
+
 def detect_cad_format(document: Document) -> CadSourceFormat | None:
     name = document.original_filename.lower()
     ext = Path(name).suffix.lower().lstrip(".")
@@ -70,21 +79,48 @@ def process_cad_document(db: Session, document: Document) -> CadModel:
         else:
             extraction = parse_dwg(path)
 
+        settings = get_settings()
         model.engine = extraction.get("engine") or "autovad_cad"
         model.units = str(extraction.get("units")) if extraction.get("units") is not None else None
         model.summary = extraction.get("summary")
         model.layers_json = json.dumps(extraction.get("layers") or [], ensure_ascii=True)
+
+        lines_raw = extraction.get("lines") or []
+        polys_raw = extraction.get("polylines") or []
+        circles_raw = extraction.get("circles") or []
+        hatches_raw = extraction.get("hatches") or []
+        lines_kept, lines_dropped = _clip_rows(lines_raw, settings.cad_store_lines_limit)
+        polys_kept, polys_dropped = _clip_rows(polys_raw, settings.cad_store_polylines_limit)
+        circles_kept, circles_dropped = _clip_rows(circles_raw, settings.cad_store_circles_limit)
+        hatches_kept, hatches_dropped = _clip_rows(hatches_raw, settings.cad_store_hatches_limit)
+        truncation = {
+            "lines_dropped": lines_dropped,
+            "polylines_dropped": polys_dropped,
+            "circles_dropped": circles_dropped,
+            "hatches_dropped": hatches_dropped,
+        }
+        has_truncation = any(int(v) > 0 for v in truncation.values())
+
         model.entities_json = json.dumps(
             {
-                "lines": (extraction.get("lines") or [])[:200],
-                "polylines": (extraction.get("polylines") or [])[:800],
-                "circles": (extraction.get("circles") or [])[:100],
-                "hatches": (extraction.get("hatches") or [])[:100],
+                "lines": lines_kept,
+                "polylines": polys_kept,
+                "circles": circles_kept,
+                "hatches": hatches_kept,
                 "alignments": extraction.get("alignments") or [],
                 "pipes": extraction.get("pipes") or [],
                 "surfaces": extraction.get("surfaces") or [],
                 "volumes": extraction.get("volumes") or [],
                 "cross_sections": extraction.get("cross_sections") or [],
+                "_meta": {
+                    "store_limits": {
+                        "lines": settings.cad_store_lines_limit,
+                        "polylines": settings.cad_store_polylines_limit,
+                        "circles": settings.cad_store_circles_limit,
+                        "hatches": settings.cad_store_hatches_limit,
+                    },
+                    "truncated": truncation,
+                },
             },
             ensure_ascii=True,
         )
@@ -92,7 +128,14 @@ def process_cad_document(db: Session, document: Document) -> CadModel:
         model.dimensions_json = json.dumps(extraction.get("dimensions") or [], ensure_ascii=True)
         model.texts_json = json.dumps(extraction.get("texts") or [], ensure_ascii=True)
         model.tables_json = json.dumps(extraction.get("tables") or [], ensure_ascii=True)
-        model.raw_stats_json = json.dumps(extraction.get("stats") or {}, ensure_ascii=True)
+        raw_stats = dict(extraction.get("stats") or {})
+        if has_truncation:
+            raw_stats["entity_store_truncation"] = truncation
+            model.summary = (
+                f"{model.summary or ''} "
+                "Stored entity payload was capped for database size; quantity takeoff used full parsed geometry."
+            ).strip()
+        model.raw_stats_json = json.dumps(raw_stats, ensure_ascii=True)
 
         status = extraction.get("status")
         if status == "needs_autodesk":
@@ -118,7 +161,6 @@ def process_cad_document(db: Session, document: Document) -> CadModel:
         for hint in extraction.get("quantities_hint") or []:
             if hint.get("description") and hint.get("quantity") is not None:
                 quantities.append(dict(hint))
-        settings = get_settings()
         if settings.cad_openai_enrichment and openai_configured():
             quantities = enrich_cad_quantities_with_openai(
                 filename=document.original_filename,

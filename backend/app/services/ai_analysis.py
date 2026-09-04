@@ -338,7 +338,27 @@ def analyze_content(
             except Exception as exc:
                 errors.append(f"drawing vision: {exc}")
 
-        merged_parts = [r for r in (text_result, label_result, vision_result) if r]
+        if vision_result and vision_result.get("schedule_mode_active"):
+            if text_result:
+                strict_text_items = [
+                    dict(item)
+                    for item in (text_result.get("items") or [])
+                    if _is_strict_schedule_lock_row(dict(item))
+                ]
+                dropped = len(text_result.get("items") or []) - len(strict_text_items)
+                text_result = dict(text_result)
+                text_result["items"] = strict_text_items
+                text_result["schedule_mode_active"] = True
+                if dropped:
+                    note = (
+                        f"Suppressed {dropped} non-schedule text row(s) "
+                        "because an authoritative schedule was detected in vision."
+                    )
+                    text_result["summary"] = f"{text_result.get('summary') or ''} {note}".strip()
+            # Label/callout rows are intentionally skipped in schedule mode.
+            merged_parts = [r for r in (text_result, vision_result) if r]
+        else:
+            merged_parts = [r for r in (text_result, label_result, vision_result) if r]
         merged: dict[str, Any] | None = None
         if len(merged_parts) >= 2:
             merged = merged_parts[0]
@@ -380,11 +400,12 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
 
     # 1) Structured tables (CSV/Excel/PDF). Bid Items / EOQ tables are copied as-is;
     # F-sheet “Project Totals” / device tables are not pay items.
-    for it in _items_from_document_tables(content, filename=filename, document_id=document_id):
+    table_items = _items_from_document_tables(content, filename=filename, document_id=document_id)
+    items.extend(table_items)
+    for it in table_items:
         key = str(it.get("description") or "").lower()
-        if key and key not in seen:
+        if key:
             seen.add(key)
-            items.append(it)
 
     schedule_copied = _pdf_has_copied_bid_table(content)
 
@@ -427,17 +448,18 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
         )
 
     # Water main / utility labels & callouts (often the only size/LF source on plans)
-    label_pack = _analyze_utility_labels(
-        filename=filename,
-        content=content,
-        document_id=document_id,
-        mains_only=_pdf_has_copied_bid_table(content),
-    )
-    for it in (label_pack.get("items") or []):
-        key = str(it.get("description") or "").lower()
-        if key and key not in seen:
-            seen.add(key)
-            items.append(it)
+    if not schedule_copied:
+        label_pack = _analyze_utility_labels(
+            filename=filename,
+            content=content,
+            document_id=document_id,
+            mains_only=False,
+        )
+        for it in (label_pack.get("items") or []):
+            key = str(it.get("description") or "").lower()
+            if key and key not in seen:
+                seen.add(key)
+                items.append(it)
 
     # Geometry notes
     facts: list[dict[str, Any]] = []
@@ -542,35 +564,311 @@ otherwise use clear USA civil/CSI descriptions
     return system, catalog_rules, code_hint
 
 
+def _truthy_flag(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "y", "on"}
+
+
+def _safe_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
+def _schedule_pages_from_facts(facts: Any) -> set[int]:
+    pages: set[int] = set()
+    if not isinstance(facts, list):
+        return pages
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        key = str(fact.get("key") or "").strip().lower()
+        if key not in {"eoq_table_found", "bid_schedule_found", "bid_items_table_found", "schedule_table_found"}:
+            continue
+        if not _truthy_flag(fact.get("value")):
+            continue
+        page = _safe_int(fact.get("source_page"))
+        if page and page > 0:
+            pages.add(page)
+    return pages
+
+
+def _schedule_evidence_blob(*parts: Any) -> str:
+    return " ".join(str(p or "") for p in parts).lower()
+
+
+def _has_strict_schedule_reference(blob: str) -> bool:
+    hints = (
+        "bid items / eoq table",
+        "bid items table",
+        "estimate of quantities schedule",
+        "eoq schedule",
+        "for bidding purposes",
+        "std bid",
+        "standard bid item number",
+        "item number",
+        "extracted from quantity table (strict grid transcription)",
+    )
+    return any(h in blob for h in hints)
+
+
+def _has_non_bid_detail_reference(blob: str) -> bool:
+    hints = (
+        "estimated quantities table",
+        "project totals",
+        "itemized list",
+        "city material procurement",
+        "earthwork quantities",
+        "typical section",
+        "plan callout",
+        "drawing callout",
+        "profile callout",
+        "long inlet",
+        "dia. outlet",
+        "constant column",
+        "variable column",
+    )
+    return any(h in blob for h in hints)
+
+
+def _looks_like_schedule_item_number(value: Any) -> bool:
+    text = str(value or "").strip().lower()
+    if not text:
+        return False
+    return bool(re.fullmatch(r"\d{1,5}[a-z]?", text))
+
+
+def _looks_like_agency_or_special_bid_code(value: Any) -> bool:
+    from app.services.traffic_control import looks_like_agency_bid_number
+
+    code = str(value or "").strip()
+    if not code:
+        return False
+    if code.lower() == "special":
+        return True
+    return looks_like_agency_bid_number(code)
+
+
+def _has_schedule_identifiers(
+    *,
+    item_number: Any = None,
+    item_no: Any = None,
+    line_number: Any = None,
+    item_code: Any = None,
+) -> bool:
+    if _looks_like_agency_or_special_bid_code(item_code):
+        return True
+    for value in (item_number, item_no, line_number):
+        if _looks_like_schedule_item_number(value):
+            return True
+    return False
+
+
+def _is_authoritative_schedule_row(item: dict[str, Any]) -> bool:
+    blob = _item_evidence_blob(item)
+    if any(
+        h in blob
+        for h in (
+            "callout",
+            "drawing label",
+            "plan label",
+            "graphic count",
+            "from symbol",
+            "itemized list",
+            "project total",
+        )
+    ):
+        return False
+    if _has_non_bid_detail_reference(blob) and not _has_strict_schedule_reference(blob):
+        return False
+    has_identifiers = _has_schedule_identifiers(
+        item_number=item.get("item_number"),
+        item_no=item.get("item_no"),
+        line_number=item.get("line_number"),
+        item_code=item.get("item_code"),
+    )
+    if has_identifiers:
+        if bool(item.get("table_transcribed")) or bool(item.get("schedule_authoritative")):
+            return True
+        if _has_strict_schedule_reference(blob):
+            return True
+    if _has_strict_schedule_reference(blob):
+        if has_identifiers:
+            return True
+        if not bool(item.get("quantity_blank")) and not bool(item.get("unit_blank")):
+            return True
+    return False
+
+
+def _raw_item_marked_schedule(
+    raw_item: dict[str, Any],
+    *,
+    default_method: str,
+    assume_schedule_rows: bool,
+    schedule_pages: set[int] | None,
+) -> bool:
+    if assume_schedule_rows:
+        return True
+    blob = _schedule_evidence_blob(
+        raw_item.get("calculation_method") or default_method,
+        raw_item.get("source_reference"),
+        raw_item.get("description"),
+        raw_item.get("category"),
+    )
+    row_type = str(
+        raw_item.get("row_type")
+        or raw_item.get("item_type")
+        or raw_item.get("kind")
+        or raw_item.get("type")
+        or ""
+    ).strip().lower()
+    if row_type in {"other", "callout", "detail", "derived", "plan"}:
+        return False
+    has_identifiers = _has_schedule_identifiers(
+        item_number=raw_item.get("item_number"),
+        item_no=raw_item.get("item_no"),
+        line_number=raw_item.get("line_number"),
+        item_code=raw_item.get("item_code"),
+    )
+    strict_ref = _has_strict_schedule_reference(blob)
+    detail_ref = _has_non_bid_detail_reference(blob)
+    desc_text = str(raw_item.get("description") or "").strip()
+    qty_text = str(raw_item.get("quantity") or "").strip()
+    unit_text = str(raw_item.get("unit") or "").strip()
+    has_measure = bool(qty_text or unit_text)
+
+    if row_type in {"schedule", "schedule_row", "bid_schedule", "eoq_schedule", "bid_item", "table_row"}:
+        if detail_ref and not strict_ref and not has_identifiers:
+            return False
+        if has_identifiers:
+            return True
+        if strict_ref and has_measure and len(desc_text) >= 4:
+            return True
+        return False
+
+    if _truthy_flag(raw_item.get("table_transcribed")) or _truthy_flag(raw_item.get("schedule_row")) or _truthy_flag(
+        raw_item.get("table_row")
+    ):
+        if detail_ref and not strict_ref and not has_identifiers:
+            return False
+        if has_identifiers:
+            return True
+        if strict_ref and has_measure and len(desc_text) >= 4:
+            return True
+        return False
+
+    if has_identifiers and strict_ref:
+        return True
+
+    page = _safe_int(raw_item.get("source_page"))
+    if schedule_pages and page and page in schedule_pages:
+        if has_identifiers and not detail_ref:
+            return True
+
+    if strict_ref:
+        return True
+    if any(h in blob for h in _SCHEDULE_METHOD_HINTS) and not detail_ref and has_identifiers:
+        return True
+    return False
+
+
+def _normalize_item_code(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
 def _items_from_openai_payload(
     data: dict[str, Any],
     *,
     filename: str,
     document_id: int,
     default_method: str,
+    assume_schedule_rows: bool = False,
+    schedule_pages: set[int] | None = None,
 ) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
+    schedule_pages = set(schedule_pages or set())
     for raw_item in data.get("items") or []:
-        qty = _parse_number(raw_item.get("quantity"))
-        if qty is None or not raw_item.get("description"):
+        if not isinstance(raw_item, dict):
             continue
+        description = str(raw_item.get("description") or "").strip()
+        if not description:
+            continue
+        schedule_row = _raw_item_marked_schedule(
+            raw_item,
+            default_method=default_method,
+            assume_schedule_rows=assume_schedule_rows,
+            schedule_pages=schedule_pages,
+        )
+        qty_raw = raw_item.get("quantity")
+        qty_raw_text = "" if qty_raw is None else str(qty_raw).strip()
+        qty_blank = qty_raw_text == ""
+        qty = _parse_number(qty_raw)
+        if qty is None:
+            if schedule_row:
+                qty = Decimal("0")
+                qty_blank = True
+            else:
+                continue
+
         conf = _parse_number(raw_item.get("confidence")) or Decimal("80")
+        category_raw = str(raw_item.get("category") or "").strip()
+        unit_raw = str(raw_item.get("unit") or "").strip()
+        unit_blank = unit_raw == ""
+        item_code = _normalize_item_code(raw_item.get("item_code"))
+        method = str(raw_item.get("calculation_method") or default_method)
         built = _item(
-                description=str(raw_item.get("description")).strip(),
-                category=str(raw_item.get("category") or "General"),
-                unit=str(raw_item.get("unit") or "unit"),
-                quantity=qty,
-                item_code=(str(raw_item["item_code"]) if raw_item.get("item_code") else None),
-                document_id=document_id,
-                page=raw_item.get("source_page"),
-                source=f"{filename}"
-                + (f" - Page {raw_item.get('source_page')}" if raw_item.get("source_page") else "")
-                + (f" - {raw_item.get('source_reference')}" if raw_item.get("source_reference") else ""),
-                method=str(raw_item.get("calculation_method") or default_method),
-                confidence=float(conf),
-                status=str(raw_item.get("status") or "needs_review"),
-                source_reference=raw_item.get("source_reference"),
-            )
+            description=description,
+            category=category_raw or "General",
+            unit=unit_raw or "UNIT",
+            quantity=qty,
+            item_code=item_code,
+            document_id=document_id,
+            page=raw_item.get("source_page"),
+            source=f"{filename}"
+            + (f" - Page {raw_item.get('source_page')}" if raw_item.get("source_page") else "")
+            + (f" - {raw_item.get('source_reference')}" if raw_item.get("source_reference") else ""),
+            method=method,
+            confidence=float(conf),
+            status=str(raw_item.get("status") or "needs_review"),
+            source_reference=raw_item.get("source_reference"),
+        )
+        if schedule_row:
+            # Keep authoritative schedule rows stable through downstream pruning/grouping.
+            built["table_transcribed"] = True
+            built["schedule_authoritative"] = True
+            if category_raw:
+                built["category"] = category_raw
+            item_no_raw = raw_item.get("item_number")
+            if item_no_raw is None or str(item_no_raw).strip() == "":
+                item_no_raw = raw_item.get("item_no")
+            if item_no_raw is None or str(item_no_raw).strip() == "":
+                item_no_raw = raw_item.get("line_number")
+            item_no = str(item_no_raw).strip() if item_no_raw is not None else ""
+            if item_no:
+                built["item_number"] = item_no
+            built["raw_unit"] = unit_raw
+            built["raw_quantity"] = qty_raw_text
+            built["unit_blank"] = unit_blank
+            built["quantity_blank"] = qty_blank
+            if qty_blank or unit_blank:
+                marker = "Preserved blank schedule cell(s) exactly as transcribed."
+                base_method = str(built.get("calculation_method") or method)
+                if marker.lower() not in base_method.lower():
+                    built["calculation_method"] = f"{base_method} | {marker}".strip(" |")
+                built["status"] = "needs_review"
+                built["needs_review"] = True
+            if not item_code:
+                built["bid_item_code_missing"] = True
+                built["status"] = "needs_review"
+                built["needs_review"] = True
         if _should_drop_incidental_item(built):
             continue
         items.append(built)
@@ -588,16 +886,23 @@ def _analyze_with_openai(
 
     clipped = _text_for_openai(content, char_limit=80000)
     tables_preview = json.dumps(_tables_for_openai(content), ensure_ascii=True)[:40000]
-    # Always allow plan takeoff. Copied bid tables are merged in finalize; never
-    # switch to "schedule only → omit pipe/paving/curb".
+    schedule_table_copied = _pdf_has_copied_bid_table(content)
+    # Prompt style depends on whether a real EOQ table was copied from the PDF.
     system, catalog_rules, code_hint = _catalog_prompt_bits(bid_catalog, design_takeoff=True)
 
-    design_or_schedule = (
-        "Copy every Bid Items / EOQ / EST. QTY / STD BID row if a quantity schedule is in this text. "
-        "Also extract other evidenced pay items from notes and tables (roads, utilities, dams, "
-        "reservoirs, buildings, removals, traffic control, paving, curb). "
-        "Traffic-control device lists / Project Totals are not the bid schedule."
-    )
+    if schedule_table_copied:
+        design_or_schedule = (
+            "A structured Bid Items / EOQ table was detected. Transcribe ONLY rows inside that table grid. "
+            "Ignore all surrounding boilerplate text/logos/stamps/notes. Do not generate missing cells; keep blanks blank. "
+            "Parse section headers sequentially and assign each following row to that section until the next section header."
+        )
+    else:
+        design_or_schedule = (
+            "Copy every Bid Items / EOQ / EST. QTY / STD BID row if a quantity schedule is in this text. "
+            "Also extract other evidenced pay items from notes and tables (roads, utilities, dams, "
+            "reservoirs, buildings, removals, traffic control, paving, curb). "
+            "Traffic-control device lists / Project Totals are not the bid schedule."
+        )
 
     user = f"""
 Extract Estimate Of Quantities / EOQ pay items from the document TEXT and TABLES.
@@ -644,13 +949,20 @@ Return JSON shape:
 }}
 """
     data = ask_openai_json(system + " " + code_hint, user)
+    facts = data.get("facts") or []
+    schedule_pages = _schedule_pages_from_facts(facts)
     items = _items_from_openai_payload(
-        data, filename=filename, document_id=document_id, default_method="OpenAI text/table extraction"
+        data,
+        filename=filename,
+        document_id=document_id,
+        default_method="OpenAI text/table extraction",
+        assume_schedule_rows=schedule_table_copied,
+        schedule_pages=schedule_pages,
     )
     return {
         "engine": "openai",
         "summary": data.get("summary") or f"OpenAI text-analyzed '{filename}'.",
-        "facts": data.get("facts") or [],
+        "facts": facts,
         "items": items,
         "needs_review": bool(data.get("needs_review")) or len(items) == 0,
     }
@@ -702,6 +1014,218 @@ def _analyze_utility_labels(
         "items": items,
         "needs_review": True,
     }
+
+
+def _missing_schedule_code_count(items: list[dict[str, Any]]) -> int:
+    return sum(1 for item in items if _is_authoritative_schedule_row(item) and not str(item.get("item_code") or "").strip())
+
+
+def _schedule_row_match_key(item: dict[str, Any]) -> str:
+    desc = re.sub(r"\s+", " ", str(item.get("description") or "").strip().lower())
+    unit = _normalize_contract_unit(str(item.get("unit") or "UNIT")).lower()
+    raw_qty = item.get("raw_quantity")
+    if raw_qty is None:
+        raw_qty = item.get("quantity")
+    qty = re.sub(r"\s+", " ", str(raw_qty if raw_qty is not None else "").strip().lower())
+    return f"{desc}|{unit}|{qty}"
+
+
+def _fill_missing_schedule_codes(
+    schedule_rows: list[dict[str, Any]],
+    reread_rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], int]:
+    by_item_no: dict[str, str] = {}
+    by_key: dict[str, set[str]] = {}
+    for row in reread_rows:
+        code = str(row.get("item_code") or "").strip()
+        if not code:
+            continue
+        item_no = str(row.get("item_number") or row.get("item_no") or "").strip().lower()
+        if item_no:
+            by_item_no[item_no] = code
+        key = _schedule_row_match_key(row)
+        by_key.setdefault(key, set()).add(code)
+
+    updated = 0
+    patched: list[dict[str, Any]] = []
+    for row in schedule_rows:
+        out = dict(row)
+        if str(out.get("item_code") or "").strip():
+            patched.append(out)
+            continue
+        replacement: str | None = None
+        item_no = str(out.get("item_number") or out.get("item_no") or "").strip().lower()
+        if item_no:
+            replacement = by_item_no.get(item_no)
+        if not replacement:
+            key = _schedule_row_match_key(out)
+            choices = by_key.get(key) or set()
+            if len(choices) == 1:
+                replacement = next(iter(choices))
+        if replacement:
+            out["item_code"] = replacement
+            out.pop("bid_item_code_missing", None)
+            updated += 1
+        patched.append(out)
+    return patched, updated
+
+
+def _is_strict_schedule_lock_row(item: dict[str, Any]) -> bool:
+    if not _is_authoritative_schedule_row(item):
+        return False
+    blob = _item_evidence_blob(item)
+    if _has_non_bid_detail_reference(blob) and not _has_strict_schedule_reference(blob):
+        return False
+    has_identifiers = _has_schedule_identifiers(
+        item_number=item.get("item_number"),
+        item_no=item.get("item_no"),
+        line_number=item.get("line_number"),
+        item_code=item.get("item_code"),
+    )
+    if _has_strict_schedule_reference(blob):
+        if has_identifiers:
+            return True
+        if not bool(item.get("quantity_blank")) and not bool(item.get("unit_blank")):
+            return len(str(item.get("description") or "").strip()) >= 4
+        return False
+    return has_identifiers
+
+
+def _normalized_schedule_category(value: Any) -> str:
+    text = re.sub(r"\s*\(ctd\.?\)\s*$", "", str(value or ""), flags=re.I).strip().lower()
+    return text
+
+
+def _should_lock_strict_schedule_mode(
+    schedule_rows: list[dict[str, Any]],
+    non_schedule_rows: list[dict[str, Any]],
+) -> bool:
+    strong_rows = [row for row in schedule_rows if _is_strict_schedule_lock_row(row)]
+    if len(strong_rows) < 2:
+        return False
+
+    identified = sum(
+        1
+        for row in strong_rows
+        if _has_schedule_identifiers(
+            item_number=row.get("item_number"),
+            item_no=row.get("item_no"),
+            line_number=row.get("line_number"),
+            item_code=row.get("item_code"),
+        )
+    )
+    if identified < max(2, min(6, len(strong_rows) // 4)):
+        return False
+
+    strict_ref_rows = sum(1 for row in strong_rows if _has_strict_schedule_reference(_item_evidence_blob(row)))
+    detail_ref_rows = sum(1 for row in strong_rows if _has_non_bid_detail_reference(_item_evidence_blob(row)))
+    if strict_ref_rows == 0 and detail_ref_rows > 0:
+        return False
+    if detail_ref_rows >= max(3, int(len(strong_rows) * 0.7)):
+        return False
+
+    if non_schedule_rows:
+        if len(strong_rows) <= 8 and len(non_schedule_rows) >= 30:
+            return False
+        schedule_cats = {
+            _normalized_schedule_category(row.get("category"))
+            for row in strong_rows
+            if _normalized_schedule_category(row.get("category"))
+        }
+        if len(schedule_cats) <= 1 and len(non_schedule_rows) >= 40:
+            return False
+
+    return True
+
+
+def _focused_reread_schedule_pages_with_vision(
+    *,
+    filename: str,
+    document_id: int,
+    pdf_path: Path,
+    schedule_pages: list[int],
+    dpi: int,
+    batch_pages: int,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from app.services.openai_client import ask_openai_vision_json
+    from app.services.pdf_vision import VisionPagePlan, iter_rendered_pdf_batches
+
+    pages = sorted({int(p) for p in schedule_pages if int(p) > 0})
+    if not pages:
+        return [], []
+
+    plan = VisionPagePlan(
+        page_count=max(pages),
+        selected_pages=pages,
+        skipped_pages=[],
+        truncated=False,
+        forced_utility_pages=[],
+        scan_all=False,
+        batch_size=max(1, min(int(batch_pages or 1), 2)),
+        reasons={p: "focused schedule reread" for p in pages},
+        large_document=False,
+    )
+    out: list[dict[str, Any]] = []
+    errors: list[str] = []
+    system = (
+        "You transcribe civil Bid Items / Estimate Of Quantities schedule rows exactly from rendered plan sheets. "
+        "Return STRICT JSON only. Never infer, compute, or hallucinate values."
+    )
+
+    for batch in iter_rendered_pdf_batches(pdf_path, plan, dpi=dpi, batch_pages=plan.batch_size):
+        page_list = [p.page for p in batch]
+        images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
+        user = f"""
+Document: {filename}
+Pages: {page_list}
+
+Task:
+- Read ONLY the Bid Items / Estimate Of Quantities table rows.
+- Ignore all non-schedule text (notes, callouts, details, title block, logos, stamps).
+- Copy each row exactly from the table grid.
+- item_code must come from BID ITEM / STD BID NO column; if a cell is blank, return empty string.
+- Keep blank UNIT or quantity cells blank (quantity may be null/empty).
+
+Return JSON:
+{{
+  "items": [
+    {{
+      "row_type": "schedule",
+      "item_number": "1",
+      "item_code": "9.0010",
+      "description": "Mobilization",
+      "category": "General Items",
+      "unit": "LS",
+      "quantity": "1",
+      "source_page": 1,
+      "source_reference": "Bid Items / EOQ table",
+      "calculation_method": "Extracted from Estimate Of Quantities schedule",
+      "confidence": 99,
+      "status": "needs_review"
+    }}
+  ]
+}}
+"""
+        try:
+            data = ask_openai_vision_json(system, user, images)
+        except Exception as exc:
+            errors.append(f"focused schedule reread pages {page_list}: {exc}")
+            continue
+        finally:
+            for img in images:
+                img["png_b64"] = ""
+            images.clear()
+        out.extend(
+            _items_from_openai_payload(
+                data,
+                filename=filename,
+                document_id=document_id,
+                default_method="OpenAI vision — focused schedule reread",
+                assume_schedule_rows=True,
+                schedule_pages=set(page_list),
+            )
+        )
+    return out, errors
 
 
 def _analyze_pdf_drawings_with_vision(
@@ -779,12 +1303,19 @@ def _analyze_pdf_drawings_with_vision(
         + "Do not take off incidental trench/bedding/fittings or add them into parent quantities. "
         + "Do not add MUTCD sign faces or graphic channelizers as extra bid items."
     )
-    all_items: list[dict[str, Any]] = []
+    schedule_rows: list[dict[str, Any]] = []
+    non_schedule_rows: list[dict[str, Any]] = []
     all_facts: list[Any] = []
     summaries: list[str] = []
     vision_pages_meta: list[dict[str, Any]] = []
     batch_errors: list[str] = []
     batch_index = 0
+    schedule_detected = False
+    schedule_pages: set[int] = set()
+    suppressed_non_schedule_rows = 0
+    strict_mode_relaxed = False
+    focused_reread_rows = 0
+    focused_reread_code_fills = 0
     started = time.monotonic()
     budget_stopped = False
 
@@ -808,19 +1339,32 @@ def _analyze_pdf_drawings_with_vision(
         page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in batch)
         images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
         vision_pages_meta.extend({"page": p.page, "reason": p.reason} for p in batch)
-        coverage_note = (
-            f"This is batch {batch_index} of the PDF. "
-            f"Document has {plan.page_count} page(s); this request covers pages "
-            f"{[p.page for p in batch]}. Extract ALL bid/takeoff items visible on THESE sheets only."
-        )
-        sheet_job = """
+        batch_pages_list = [p.page for p in batch]
+        if schedule_detected:
+            coverage_note = (
+                f"This is batch {batch_index} of the PDF and an authoritative schedule was already detected. "
+                f"Only schedule continuation rows are needed from pages {batch_pages_list}."
+            )
+            sheet_job = """
+Primary job (schedule mode):
+- Extract ONLY Bid Items / Estimate Of Quantities table rows on THESE pages.
+- Ignore plan callouts/details/notes even if they contain quantities.
+- Include row_type="schedule" for each row.
+- Copy BID ITEM / STD BID NO into item_code. If the table cell is blank, leave item_code as empty string.
+- Preserve blank UNIT / EST. QTY cells as blank (quantity may be null/empty).
+"""
+        else:
+            coverage_note = (
+                f"This is batch {batch_index} of the PDF. "
+                f"Document has {plan.page_count} page(s); this request covers pages {batch_pages_list}."
+            )
+            sheet_job = """
 Primary job:
-- If a Bid Items / Estimate Of Quantities table is visible on THESE sheets (ITEM NUMBER, BID ITEM,
-  DESCRIPTION, UNITS, EST. QTY or STD BID NO / APPROX. QUANTITY), copy EVERY row left then right.
-  Traffic-control device tables (“Project Totals”, itemized device lists) are NOT that bid schedule.
-- Also extract ALL other printed pay items on these sheets: General/LS, Traffic Control bid rows
-  (not MUTCD sign faces), Removals, grading, erosion/landscaping, HMA/surfacing, curb/gutter/sidewalk,
-  storm, watermain, sanitary, signals/lighting, dams/buildings when shown.
+- First detect whether a Bid Items / Estimate Of Quantities table is visible on THESE pages
+  (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY or STD BID NO / APPROX. QUANTITY).
+- If such a table is present, transcribe ONLY those schedule rows and set row_type="schedule".
+- If no such table is present on these pages, you may return other evidenced pay items with row_type="other".
+- Traffic-control device tables (“Project Totals”, itemized device lists) are NOT the bid schedule.
 - Do not invent trench/bedding/backfill/fittings unless printed as pay items.
 - Do not add channelizers or individual MUTCD signs from traffic-control graphics.
 """
@@ -841,11 +1385,13 @@ Return JSON:
   "facts": [{{"key":"eoq_table_found","value":"true","source_page":1}}],
   "items": [
     {{
+      "row_type": "schedule",
+      "item_number": "1",
       "item_code": "optional STD BID NO",
       "description": "exact schedule description",
       "category": "Water Main",
       "unit": "Ft",
-      "quantity": 245,
+      "quantity": "245",
       "source_page": 4,
       "source_reference": "EOQ schedule table",
       "calculation_method": "Extracted from Estimate Of Quantities schedule",
@@ -865,16 +1411,64 @@ Return JSON:
             for img in images:
                 img["png_b64"] = ""
             images.clear()
+        batch_facts = data.get("facts") or []
+        all_facts.extend(batch_facts)
+        for pg in _schedule_pages_from_facts(batch_facts):
+            schedule_pages.add(pg)
         batch_items = _items_from_openai_payload(
             data,
             filename=filename,
             document_id=document_id,
             default_method="OpenAI vision — plan sheet",
+            schedule_pages=_schedule_pages_from_facts(batch_facts),
         )
-        all_items.extend(batch_items)
-        all_facts.extend(data.get("facts") or [])
+        batch_schedule_rows = [it for it in batch_items if _is_strict_schedule_lock_row(it)]
+        for item in batch_schedule_rows:
+            page_no = _safe_int(item.get("source_page"))
+            if page_no and page_no > 0:
+                schedule_pages.add(page_no)
+
+        batch_non_schedule_rows = [it for it in batch_items if not _is_strict_schedule_lock_row(it)]
+        if batch_schedule_rows:
+            schedule_detected = True
+            schedule_rows.extend(batch_schedule_rows)
+        non_schedule_rows.extend(batch_non_schedule_rows)
         if data.get("summary"):
             summaries.append(str(data["summary"]))
+
+    if schedule_detected and schedule_rows:
+        lock_candidate = _should_lock_strict_schedule_mode(schedule_rows, non_schedule_rows)
+        missing_codes_before = _missing_schedule_code_count(schedule_rows)
+        if lock_candidate and missing_codes_before > 0:
+            focus_pages = sorted(schedule_pages)
+            reread_rows, reread_errors = _focused_reread_schedule_pages_with_vision(
+                filename=filename,
+                document_id=document_id,
+                pdf_path=pdf_path,
+                schedule_pages=focus_pages,
+                dpi=dpi,
+                batch_pages=batch_pages,
+            )
+            if reread_errors:
+                batch_errors.extend(reread_errors)
+            if reread_rows:
+                focused_reread_rows = len(reread_rows)
+                patched_rows, patched_count = _fill_missing_schedule_codes(schedule_rows, reread_rows)
+                schedule_rows = patched_rows
+                focused_reread_code_fills = patched_count
+                if (
+                    len(reread_rows) >= max(2, len(schedule_rows) - 2)
+                    and _missing_schedule_code_count(reread_rows) < _missing_schedule_code_count(schedule_rows)
+                ):
+                    schedule_rows = reread_rows
+
+    schedule_mode_active = bool(schedule_detected and schedule_rows and _should_lock_strict_schedule_mode(schedule_rows, non_schedule_rows))
+    if schedule_detected and schedule_rows and schedule_mode_active:
+        all_items = schedule_rows
+        suppressed_non_schedule_rows = len(non_schedule_rows)
+    else:
+        all_items = schedule_rows + non_schedule_rows
+        strict_mode_relaxed = bool(schedule_detected and schedule_rows)
 
     # Merge duplicate keys across batches (same desc/unit)
     merged_pack = _merge_analysis_results(
@@ -885,6 +1479,7 @@ Return JSON:
             "summary": " ".join(summaries).strip(),
             "needs_review": len(all_items) == 0,
             "vision_pages": vision_pages_meta,
+            "schedule_mode_active": schedule_mode_active,
         },
     )
     items = merged_pack.get("items") or all_items
@@ -909,6 +1504,21 @@ Return JSON:
         )
     if batch_errors:
         summary += " Batch errors: " + " | ".join(batch_errors[:5])
+    if suppressed_non_schedule_rows:
+        summary += (
+            f" Suppressed {suppressed_non_schedule_rows} non-schedule row(s) "
+            "after schedule detection in EOQ mode."
+        )
+    if strict_mode_relaxed:
+        summary += (
+            " Detected schedule-like tables but evidence was not authoritative enough "
+            "to lock strict schedule mode; kept hybrid extraction."
+        )
+    if focused_reread_rows:
+        summary += (
+            f" Focused schedule re-read on {focused_reread_rows} row(s) "
+            f"to recover missing bid item codes ({focused_reread_code_fills} filled)."
+        )
 
     return {
         "engine": "openai+vision",
@@ -922,6 +1532,7 @@ Return JSON:
         or budget_stopped,
         "vision_pages": vision_pages_meta,
         "notes": (" | ".join(batch_errors) if batch_errors else None),
+        "schedule_mode_active": schedule_mode_active,
         "vision_coverage": {
             "page_count": plan.page_count,
             "selected_pages": scanned_pages or plan.selected_pages,
@@ -957,6 +1568,8 @@ def _is_schedule_pay_item(item: dict[str, Any]) -> bool:
     """True when the row came from a Bid Items / EOQ / quantity-schedule table."""
     from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
 
+    if (bool(item.get("table_transcribed")) or bool(item.get("schedule_authoritative"))) and _is_authoritative_schedule_row(item):
+        return True
     if is_plan_device_takeoff(item):
         return False
     if looks_like_agency_bid_number(item.get("item_code")):
@@ -967,6 +1580,9 @@ def _is_schedule_pay_item(item: dict[str, Any]) -> bool:
 
 def _should_drop_incidental_item(item: dict[str, Any]) -> bool:
     """Incidental children are omitted; their quantities are never added to a parent."""
+    if bool(item.get("table_transcribed")):
+        # Transcribed schedule rows are authoritative and must be preserved as-is.
+        return False
     return should_drop_incidental_item(
         item,
         scheduled=_is_schedule_pay_item(item),
@@ -1062,38 +1678,8 @@ def _is_bid_schedule_table(table: dict[str, Any]) -> bool:
     """True for Bid Items / EOQ / quantity-schedule tables — not F-sheet device tables."""
     if _is_plan_device_table(table):
         return False
-    header = _table_header_text(table)
-    if any(
-        k in header
-        for k in (
-            "std bid",
-            "standard bid",
-            "est. qty",
-            "est qty",
-            "approx. quantity",
-            "approx quantity",
-            "bid item",
-            "for bidding",
-            "proposal quantity",
-        )
-    ):
-        return True
-    # Generic Description / Unit / Qty is common on F-sheets. Only treat it as the
-    # project bid schedule when several agency bid numbers appear in the body.
-    if (
-        ("description" in header or "particular" in header)
-        and ("quantity" in header or "qty" in header)
-        and ("unit" in header)
-        and not any(k in header for k in ("tjb", "fjb", "fitting", "locator", "channelizer"))
-    ):
-        body = " ".join(
-            str(c or "")
-            for row in (table.get("rows") or [])[1:40]
-            for c in row
-        )
-        codes = re.findall(r"\b\d{1,4}\.\d{2,4}[a-z]?\b", body, flags=re.I)
-        return len({c.lower() for c in codes}) >= 5
-    return False
+    rows = table.get("rows") or []
+    return _schedule_table_layout(rows) is not None
 
 
 def _pdf_has_copied_bid_table(content: ExtractedContent | None) -> bool:
@@ -1129,6 +1715,16 @@ _QTY_COL_NAMES = (
     "qty",
     "qnty",
 )
+_ITEM_NO_COL_NAMES = (
+    "item number",
+    "item no",
+    "item #",
+    "line number",
+    "line no",
+    "line #",
+    "line",
+    "#",
+)
 _DESC_COL_NAMES = (
     "item description",
     "description",
@@ -1154,6 +1750,207 @@ _SKIP_TABLE_DESC_RE = re.compile(
     r"units?|est\.?\s*qty|approx\.?\s*quantity|quantity|std bid.*)$",
     re.I,
 )
+_CATEGORY_ONLY_RE = re.compile(r"^[A-Za-z][A-Za-z0-9\s/&,\-\(\)\.:]{1,120}$")
+_SCHEDULE_HEADER_REJECT_HINTS = (
+    "itemized list",
+    "project total",
+    "project totals",
+    "channelizer",
+    "mutcd",
+)
+_UNIT_TOKEN_HINTS = {
+    "ls",
+    "lf",
+    "ea",
+    "each",
+    "ft",
+    "feet",
+    "m",
+    "km",
+    "sqft",
+    "sf",
+    "sy",
+    "cy",
+    "ton",
+    "tons",
+    "kg",
+    "lb",
+}
+
+
+def _row_cell(row: list[Any], idx: int | None) -> str:
+    if idx is None or idx < 0 or idx >= len(row):
+        return ""
+    return str(row[idx] or "").strip()
+
+
+def _schedule_table_layout(rows: list[Any]) -> tuple[int, int, int, int, int | None, int | None] | None:
+    """Locate schedule header row and key columns inside a raw table."""
+    if not rows:
+        return None
+    for header_idx in range(min(len(rows), 8)):
+        header_row = rows[header_idx]
+        if not isinstance(header_row, list):
+            continue
+        header = [str(c or "").strip().lower() for c in header_row]
+        if not any(header):
+            continue
+        header_blob = " ".join(header)
+        if any(k in header_blob for k in _SCHEDULE_HEADER_REJECT_HINTS):
+            continue
+        desc_idx = _find_col(header, list(_DESC_COL_NAMES))
+        unit_idx = _find_col(header, list(_UNIT_COL_NAMES))
+        qty_idx = _find_col(header, list(_QTY_COL_NAMES))
+        code_idx = _find_col(header, list(_CODE_COL_NAMES))
+        item_no_idx = _find_col(header, list(_ITEM_NO_COL_NAMES))
+        if desc_idx is None or unit_idx is None or qty_idx is None:
+            continue
+        if code_idx is None and item_no_idx is None:
+            continue
+        return (header_idx, desc_idx, unit_idx, qty_idx, code_idx, item_no_idx)
+    return None
+
+
+def _looks_like_item_or_code_token(text: str) -> bool:
+    low = str(text or "").strip().lower()
+    if not low:
+        return False
+    if re.fullmatch(r"\d{1,5}(?:\.\d{1,5})?[a-z]?", low):
+        return True
+    if re.fullmatch(r"[a-z]{1,3}\d{1,5}(?:\.\d{1,5})?[a-z]?", low):
+        return True
+    compact = low.replace(" ", "")
+    digits = sum(ch.isdigit() for ch in compact)
+    letters = sum(ch.isalpha() for ch in compact)
+    if digits >= 1 and letters <= 2 and len(compact) <= 14:
+        return True
+    return False
+
+
+def _looks_like_unit_token(text: str) -> bool:
+    low = str(text or "").strip().lower().replace("³", "3")
+    if not low:
+        return False
+    compact = re.sub(r"[^a-z0-9]", "", low)
+    if compact in _UNIT_TOKEN_HINTS:
+        return True
+    # Common punctuation variants: Sq.Ft, Cu.Yd, etc.
+    return compact in {"sqft", "cuyd", "linft", "linfeet", "each", "ea", "ls", "lf", "cy", "sy", "ton", "tons"}
+
+
+def _looks_like_category_header_row(
+    *,
+    description: str,
+    item_number: str,
+    bid_item: str,
+    unit: str,
+    qty: str,
+) -> bool:
+    if not description:
+        return False
+    low = description.strip().lower()
+    if item_number or bid_item or unit or qty:
+        return False
+    if _SKIP_TABLE_DESC_RE.match(description):
+        return False
+    if any(
+        token in low
+        for token in (
+            "for bidding",
+            "estimate of quantities",
+            "bid items",
+            "project no",
+            "project number",
+            "sheet",
+            "date",
+            "prepared by",
+            "city of",
+            "department",
+            "company",
+            "continued",
+            "(ctd",
+        )
+    ):
+        return False
+    return bool(_CATEGORY_ONLY_RE.match(description))
+
+
+def _extract_row_category_header(
+    row: list[Any],
+    *,
+    desc_idx: int,
+    unit_idx: int,
+    qty_idx: int,
+    code_idx: int | None,
+    item_no_idx: int | None,
+) -> str | None:
+    qty_txt = _row_cell(row, qty_idx)
+    if qty_txt and _parse_number(qty_txt) is not None:
+        return None
+    bid_item_txt = _row_cell(row, code_idx)
+    if bid_item_txt and _looks_like_item_or_code_token(bid_item_txt):
+        return None
+    item_no_txt = _row_cell(row, item_no_idx)
+    if item_no_txt and _looks_like_item_or_code_token(item_no_txt):
+        return None
+    unit_txt = _row_cell(row, unit_idx)
+    if unit_txt and _looks_like_unit_token(unit_txt):
+        return None
+
+    candidates: list[str] = []
+    desc = _row_cell(row, desc_idx)
+    if desc:
+        candidates.append(desc)
+    for idx, raw in enumerate(row):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if text in candidates:
+            continue
+        if idx in {qty_idx, unit_idx}:
+            continue
+        if idx == code_idx and _looks_like_item_or_code_token(text):
+            continue
+        if idx == item_no_idx and _looks_like_item_or_code_token(text):
+            continue
+        candidates.append(text)
+
+    for candidate in candidates:
+        if _looks_like_category_header_row(
+            description=candidate,
+            item_number="",
+            bid_item="",
+            unit="",
+            qty="",
+        ):
+            return candidate.rstrip(":").strip()
+    return None
+
+
+def _extract_row_description(
+    row: list[Any],
+    *,
+    desc_idx: int,
+    unit_idx: int,
+    qty_idx: int,
+    code_idx: int | None,
+    item_no_idx: int | None,
+) -> str:
+    desc = _row_cell(row, desc_idx)
+    if desc:
+        return desc
+    for idx, raw in enumerate(row):
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        if idx in {qty_idx, unit_idx, code_idx, item_no_idx}:
+            continue
+        if _parse_number(text) is not None:
+            continue
+        if _looks_like_unit_token(text):
+            continue
+        return text
+    return ""
 
 
 def _items_from_document_tables(
@@ -1162,130 +1959,118 @@ def _items_from_document_tables(
     filename: str,
     document_id: int,
 ) -> list[dict[str, Any]]:
-    """Copy Bid Items / EOQ tables as pay items. Skip F-sheet Project Totals tables."""
+    """Strictly transcribe Bid Items / EOQ table rows from the grid only."""
     items: list[dict[str, Any]] = []
-    seen: set[str] = set()
     tables = list(content.tables or [])
-    schedule_tables = [t for t in tables if _is_bid_schedule_table(t)]
-    if schedule_tables:
-        chosen = schedule_tables
-        schedule_copy = True
-    else:
-        chosen = [t for t in tables if not _is_plan_device_table(t)]
-        schedule_copy = False
+    chosen = [t for t in tables if _is_bid_schedule_table(t)]
+    if not chosen:
+        return items
 
     for table in chosen:
         page = table.get("page")
         rows = table.get("rows") or []
         if not rows:
             continue
-        header = [str(c or "").lower() for c in rows[0]]
-        qty_idx = _find_col(header, list(_QTY_COL_NAMES))
-        desc_idx = _find_col(header, list(_DESC_COL_NAMES))
-        unit_idx = _find_col(header, list(_UNIT_COL_NAMES))
-        code_idx = _find_col(header, list(_CODE_COL_NAMES))
+        layout = _schedule_table_layout(rows)
+        if not layout:
+            continue
+        header_idx, desc_idx, unit_idx, qty_idx, code_idx, item_no_idx = layout
 
-        if qty_idx is None and len(header) >= 3:
-            for i, h in enumerate(header):
-                if "unit" in h:
-                    unit_idx = i
-                if any(k in h for k in ("item", "desc", "material")):
-                    desc_idx = i
-                if any(k in h for k in ("qty", "quantity")):
-                    qty_idx = i
-            if qty_idx is None and len(header) >= 3:
-                desc_idx, unit_idx, qty_idx = 0, 1, 2
+        method = "Extracted from quantity table (strict grid transcription)"
+        source = f"{filename} - Bid Items / EOQ table" + (f" p.{page}" if page else "")
+        source_reference = "Bid Items / EOQ table"
+        current_category: str | None = None
+        table_items: list[dict[str, Any]] = []
+        numbered_or_coded = 0
+        non_blank_qty = 0
 
-        method = (
-            "Extracted from quantity table"
-            if schedule_copy
-            else "Extracted from tabular quantity sheet"
-        )
-        source = (
-            f"{filename} - Bid Items / EOQ table" + (f" p.{page}" if page else "")
-            if schedule_copy
-            else f"{filename}" + (f" - Table p.{page}" if page else " - Table")
-        )
-        source_reference = "Bid Items / EOQ table" if schedule_copy else source
-
-        data_rows = rows[1:] if desc_idx is not None else rows
+        data_rows = rows[header_idx + 1 :]
         for row in data_rows:
-            if not row or desc_idx is None or qty_idx is None:
-                joined = " ".join(str(c or "") for c in row).strip()
-                if not joined:
-                    continue
-                mapped = _map_alias(joined)
-                qty = _parse_number(row[-1] if row else None)
-                if mapped and qty is not None:
-                    key = mapped[0].lower()
-                    if key in seen:
-                        continue
-                    seen.add(key)
-                    items.append(
-                        _item(
-                            description=mapped[0],
-                            category=mapped[1],
-                            unit=(
-                                row[unit_idx]
-                                if unit_idx is not None and unit_idx < len(row) and row[unit_idx]
-                                else mapped[2]
-                            ),
-                            quantity=qty,
-                            document_id=document_id,
-                            page=page,
-                            source=source,
-                            method=method,
-                            source_reference=source_reference,
-                            confidence=92,
-                        )
-                    )
+            if not row:
                 continue
 
-            if desc_idx >= len(row) or qty_idx >= len(row):
+            item_no = _row_cell(row, item_no_idx)
+            bid_item = _row_cell(row, code_idx)
+            desc = _extract_row_description(
+                row,
+                desc_idx=desc_idx,
+                unit_idx=unit_idx,
+                qty_idx=qty_idx,
+                code_idx=code_idx,
+                item_no_idx=item_no_idx,
+            )
+            unit_raw = _row_cell(row, unit_idx)
+            qty_raw = _row_cell(row, qty_idx)
+
+            if not any(str(c or "").strip() for c in row):
                 continue
-            desc = str(row[desc_idx] or "").strip()
+
+            category_header = _extract_row_category_header(
+                row,
+                desc_idx=desc_idx,
+                unit_idx=unit_idx,
+                qty_idx=qty_idx,
+                code_idx=code_idx,
+                item_no_idx=item_no_idx,
+            )
+            if category_header:
+                current_category = category_header
+                continue
+
             if not desc or _SKIP_TABLE_DESC_RE.match(desc):
                 continue
-            row_joined = " ".join(str(c or "") for c in row)
-            if description_is_incidental_child(desc) or (
-                not schedule_copy and description_is_incidental_child(row_joined)
-            ):
-                continue
-            qty = _parse_number(row[qty_idx])
+
+            qty = _parse_number(qty_raw)
+            qty_blank = not qty_raw
             if qty is None:
-                continue
-            mapped = _map_alias(desc)
-            description = mapped[0] if mapped else desc
-            category = mapped[1] if mapped else "General"
-            unit = (
-                str(row[unit_idx]).strip()
-                if unit_idx is not None and unit_idx < len(row) and str(row[unit_idx] or "").strip()
-                else (mapped[2] if mapped else "unit")
+                # Keep the row (strict transcription) even if quantity cell is blank/non-numeric.
+                qty = Decimal("0")
+            category = current_category or "General"
+            unit = unit_raw or "UNIT"
+
+            item = _item(
+                description=desc,
+                category=category,
+                unit=unit,
+                quantity=qty,
+                item_code=bid_item or None,
+                document_id=document_id,
+                page=page,
+                source=source,
+                method=method,
+                source_reference=source_reference,
+                confidence=90 if (qty_blank or not unit_raw) else 99,
             )
-            code = (
-                str(row[code_idx]).strip()
-                if code_idx is not None and code_idx < len(row) and row[code_idx]
-                else None
-            )
-            key = description.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            items.append(
-                _item(
-                    description=description,
-                    category=category,
-                    unit=unit,
-                    quantity=qty,
-                    item_code=code,
-                    document_id=document_id,
-                    page=page,
-                    source=source,
-                    method=method,
-                    source_reference=source_reference,
-                    confidence=94,
+            # Keep transcription category exactly as seen in the schedule section headers.
+            item["category"] = category
+            item["table_transcribed"] = True
+            item["item_number"] = item_no or None
+            item["raw_unit"] = unit_raw
+            item["raw_quantity"] = qty_raw
+            item["quantity_blank"] = qty_blank
+            item["unit_blank"] = not bool(unit_raw)
+            item["status"] = "needs_review" if (qty_blank or not unit_raw) else item.get("status", "needs_review")
+            if qty_blank or not unit_raw:
+                base_method = str(item.get("calculation_method") or method)
+                item["calculation_method"] = (
+                    f"{base_method} | Preserved blank schedule cell(s) exactly as transcribed."
                 )
-            )
+                item["needs_review"] = True
+            if item_no or bid_item:
+                numbered_or_coded += 1
+            if not qty_blank:
+                non_blank_qty += 1
+            table_items.append(item)
+
+        # Guardrail: OCR noise can produce a false one-row "table".
+        # Keep tiny tables only if they clearly look like a real bid row.
+        if not table_items:
+            continue
+        if len(table_items) == 1 and numbered_or_coded == 0:
+            continue
+        if len(table_items) >= 2 and numbered_or_coded == 0 and non_blank_qty < 2:
+            continue
+        items.extend(table_items)
     return items
 
 
@@ -1322,7 +2107,20 @@ def _has_authoritative_schedule(
     """True only when a real Bid Items / EOQ table was captured — not an F-sheet list."""
     from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
 
-    if content and any(_is_bid_schedule_table(t) for t in (content.tables or []) if t.get("rows")):
+    if content:
+        copied = _items_from_document_tables(content, filename="plan", document_id=0)
+        strict_copied = [row for row in copied if _is_strict_schedule_lock_row(row)]
+        if strict_copied:
+            return True
+    strict_rows = [item for item in items if _is_strict_schedule_lock_row(item)]
+    if len(strict_rows) >= 2:
+        return True
+    if len(strict_rows) == 1 and _has_schedule_identifiers(
+        item_number=strict_rows[0].get("item_number"),
+        item_no=strict_rows[0].get("item_no"),
+        line_number=strict_rows[0].get("line_number"),
+        item_code=strict_rows[0].get("item_code"),
+    ):
         return True
     coded = 0
     strong = 0
@@ -1495,10 +2293,47 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
 
     schedule_present = _has_authoritative_schedule(content, items)
     cleaned = list(items)
+    table_transcribed_present = any(bool(i.get("table_transcribed")) for i in cleaned)
+    strict_schedule_mode = bool(result.get("schedule_mode_active"))
+    dropped_non_schedule = 0
 
-    before_combine = len(cleaned)
-    cleaned = combine_similar_pay_items(cleaned)
-    combined_groups = before_combine - len(cleaned)
+    if schedule_present and table_transcribed_present:
+        schedule_rows = [i for i in cleaned if bool(i.get("table_transcribed"))]
+        schedule_desc = {
+            re.sub(r"\s+", " ", str(i.get("description") or "").strip().lower())
+            for i in schedule_rows
+            if str(i.get("description") or "").strip()
+        }
+        schedule_codes = {
+            str(i.get("item_code") or "").strip().lower()
+            for i in schedule_rows
+            if str(i.get("item_code") or "").strip()
+        }
+        non_schedule_rows: list[dict[str, Any]] = []
+        for item in cleaned:
+            if bool(item.get("table_transcribed")):
+                continue
+            desc_key = re.sub(r"\s+", " ", str(item.get("description") or "").strip().lower())
+            code_key = str(item.get("item_code") or "").strip().lower()
+            if (desc_key and desc_key in schedule_desc) or (code_key and code_key in schedule_codes):
+                dropped_non_schedule += 1
+                continue
+            if strict_schedule_mode and not _is_strict_schedule_lock_row(item):
+                dropped_non_schedule += 1
+                continue
+            category = str(item.get("category") or "").strip().lower()
+            if category in {"general", "miscellaneous"} and not _is_schedule_pay_item(item):
+                dropped_non_schedule += 1
+                continue
+            non_schedule_rows.append(item)
+        before_combine = len(non_schedule_rows)
+        non_schedule_rows = combine_similar_pay_items(non_schedule_rows)
+        combined_groups = before_combine - len(non_schedule_rows)
+        cleaned = schedule_rows + non_schedule_rows
+    else:
+        before_combine = len(cleaned)
+        cleaned = combine_similar_pay_items(cleaned)
+        combined_groups = before_combine - len(cleaned)
 
     # Roll individual traffic signs → one SqFt "Traffic Control" item
     from app.services.traffic_control import consolidate_traffic_control_signs
@@ -1526,6 +2361,19 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
         )
         out["notes"] = ((out.get("notes") or "") + " | " + comb_note).strip(" |")
         out["summary"] = f"{(out.get('summary') or '')} {comb_note}".strip()
+    if dropped_non_schedule:
+        if strict_schedule_mode:
+            prune_note = (
+                f"Dropped {dropped_non_schedule} non-schedule row(s) "
+                "because an authoritative bid schedule was detected."
+            )
+        else:
+            prune_note = (
+                f"Dropped {dropped_non_schedule} non-table General/Misc row(s) "
+                "because a strict bid schedule table was transcribed."
+            )
+        out["notes"] = ((out.get("notes") or "") + " | " + prune_note).strip(" |")
+        out["summary"] = f"{(out.get('summary') or '')} {prune_note}".strip()
     if tc_meta.get("sign_rows"):
         tc_note = (
             f"Rolled {tc_meta['sign_rows']} traffic sign(s) into Traffic Control "
@@ -1543,13 +2391,21 @@ def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str
 
     Keep every location takeoff; similar rows are summed later in finalize.
     """
+    strict_schedule_mode = bool(
+        text_result.get("schedule_mode_active")
+        or vision_result.get("schedule_mode_active")
+    )
     items: list[dict[str, Any]] = []
+    suppressed = 0
     for source in (text_result.get("items") or [], vision_result.get("items") or []):
         for item in source:
             if not item.get("description"):
                 continue
             normalized = dict(item)
             normalized["unit"] = _normalize_contract_unit(normalized.get("unit"))
+            if strict_schedule_mode and not _is_strict_schedule_lock_row(normalized):
+                suppressed += 1
+                continue
             if _should_drop_incidental_item(normalized):
                 continue
             items.append(normalized)
@@ -1560,6 +2416,8 @@ def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str
         f"Also merged text/table takeoff ({len(text_result.get('items') or [])} text items, "
         f"{len(vision_result.get('items') or [])} drawing items → {len(items)} unique)."
     ).strip()
+    if strict_schedule_mode and suppressed:
+        summary = f"{summary} Suppressed {suppressed} non-schedule row(s) in schedule mode.".strip()
     return {
         "engine": "openai+vision",
         "summary": summary,
@@ -1567,6 +2425,7 @@ def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str
         "items": items,
         "needs_review": bool(text_result.get("needs_review") or vision_result.get("needs_review"))
         or len(items) == 0,
+        "schedule_mode_active": strict_schedule_mode,
         "vision_pages": vision_result.get("vision_pages") or [],
         "vision_coverage": vision_result.get("vision_coverage")
         or text_result.get("vision_coverage"),

@@ -24,6 +24,7 @@ from app.services.eoq_groups import assign_group_category, group_items, looks_li
 from app.services.csi_mapper import enrich_quantity_item, format_export_unit
 from app.services.item_combine import combine_similar_pay_items
 from app.services.processing import load_findings
+from app.services.eoq_validation import validate_extracted_items
 
 # AutoVAD standard: confidence below this → Engineer Review
 CONFIDENCE_VERIFIED_THRESHOLD = 97
@@ -197,7 +198,8 @@ def generate_eoq_for_project(
             payload["calculation_method"] = payload.get("calculation_method") or "CAD geometry takeoff"
             collected.append(payload)
 
-    extracted = combine_similar_pay_items(collected)
+    validated_rows, validation_notes = validate_extracted_items(collected)
+    extracted = combine_similar_pay_items(validated_rows)
 
     if not extracted:
         raise ValueError(
@@ -233,6 +235,9 @@ def generate_eoq_for_project(
             " Generated with AutoVAD default CSI schedule (no bid template uploaded)."
             " Upload a bid list so Generate Estimate Of Quantities maps only the bid items needed for this project."
         )
+
+    if validation_notes:
+        notes_extra += " Deterministic validation: " + " ".join(validation_notes)
 
     items_list = ensure_mobilization_item(
         items_list,
@@ -287,7 +292,9 @@ def generate_eoq_for_project(
         # Ensure category is the EOQ group label
         grouped = assign_group_category(dict(item))
         force_review = (
-            grouped.get("bid_match_method") in {"unmatched", "unmapped", "fuzzy_description"}
+            bool(grouped.get("validation_needs_review"))
+            or bool(grouped.get("needs_review"))
+            or grouped.get("bid_match_method") in {"unmatched", "unmapped", "fuzzy_description"}
             or (bool(grouped.get("bid_template_line_id")) and float(grouped.get("quantity") or 0) == 0)
             or (
                 bool(grouped.get("bid_template_line_id"))
@@ -708,16 +715,36 @@ def load_project_utilities_detail(db: Session, project_id: int) -> dict | None:
         if needs_rebuild:
             try:
                 entities = json.loads(cad.entities_json or "{}")
-                texts = json.loads(cad.texts_json or "[]")
-                blocks = json.loads(cad.blocks_json or "[]")
-                extraction = {
-                    **(entities if isinstance(entities, dict) else {}),
-                    "texts": texts if isinstance(texts, list) else [],
-                    "blocks": blocks if isinstance(blocks, list) else [],
-                }
-                from app.services.cad.utility_stationing import build_utilities_detail
+                meta = entities.get("_meta") if isinstance(entities, dict) else {}
+                truncated = (meta or {}).get("truncated") if isinstance(meta, dict) else {}
+                has_truncation = bool(
+                    isinstance(truncated, dict)
+                    and any(float(v or 0) > 0 for v in truncated.values())
+                )
+                if has_truncation:
+                    if isinstance(detail, dict):
+                        summary = detail.setdefault("summary", {})
+                        if isinstance(summary, dict):
+                            summary.setdefault(
+                                "warning",
+                                "Stationing rebuild skipped because stored CAD entities were truncated. "
+                                "Re-run Process CAD with higher CAD_STORE_* limits for full detail rebuild.",
+                            )
+                        needs_rebuild = False
+                    else:
+                        # Avoid rebuilding from known-truncated geometry, which can undercount utilities.
+                        continue
+                if needs_rebuild:
+                    texts = json.loads(cad.texts_json or "[]")
+                    blocks = json.loads(cad.blocks_json or "[]")
+                    extraction = {
+                        **(entities if isinstance(entities, dict) else {}),
+                        "texts": texts if isinstance(texts, list) else [],
+                        "blocks": blocks if isinstance(blocks, list) else [],
+                    }
+                    from app.services.cad.utility_stationing import build_utilities_detail
 
-                detail = build_utilities_detail(extraction)
+                    detail = build_utilities_detail(extraction)
             except Exception:
                 if detail is None:
                     continue

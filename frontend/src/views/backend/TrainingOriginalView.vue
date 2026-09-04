@@ -24,6 +24,11 @@ const expectedFile = ref<File[] | File | null>(null)
 
 const expectedItems = computed(() => detail.value?.expected?.items || [])
 
+function displayUnit(value: unknown): string {
+  if (value == null || value === '') return '—'
+  return formatUnit(String(value))
+}
+
 function pickFile(v: File[] | File | null): File | null {
   if (!v) return null
   return Array.isArray(v) ? v[0] || null : v
@@ -193,7 +198,7 @@ async function uploadExpected() {
             <tr v-for="(it, idx) in expectedItems" :key="idx">
               <td class="text-center">{{ it.item_no ?? it.display_number ?? idx + 1 }}</td>
               <td class="font-weight-medium">{{ it.description || '—' }}</td>
-              <td class="text-uppercase text-center">{{ formatUnit(it.unit) }}</td>
+              <td class="text-uppercase text-center">{{ displayUnit(it.unit) }}</td>
               <td class="text-right">{{ formatQty(it.quantity) }}</td>
               <td class="text-caption">{{ it.category || it.group || '—' }}</td>
             </tr>

@@ -59,7 +59,6 @@ _GROUP_RULES: list[tuple[list[str], str]] = [
             "mobilization",
             "demobilization",
             "tax on city",
-            "city furnished",
             "winter maintenance",
             "construction entrance",
             "field office",
@@ -353,7 +352,23 @@ _GROUP_RULES: list[tuple[list[str], str]] = [
     # Broad utility fallbacks
     (["sewer"], "Sanitary Sewer"),
     (["drain", "drainage"], "Storm Sewer"),
-    (["water", "valve", "pipe", "fitting", "bend", "tee", "reducer"], "Watermain"),
+    (
+        [
+            "water",
+            "valve",
+            "pipe",
+            "fitting",
+            "bend",
+            "elbow",
+            "tee",
+            "reducer",
+            "retainer gland",
+            "long sleeve",
+            "mj plug",
+            "restrained joint",
+        ],
+        "Watermain",
+    ),
     (["fence", "guardrail", "barrier"], "Miscellaneous"),
 ]
 

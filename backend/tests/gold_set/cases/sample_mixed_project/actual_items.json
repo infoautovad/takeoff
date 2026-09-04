@@ -1,0 +1,49 @@
+{
+  "id": "sample_mixed_project",
+  "items": [
+    {
+      "description": "8 inch water line",
+      "unit": "Ft",
+      "quantity": 500,
+      "category": "Utilities",
+      "calculation_method": "CAD geometry takeoff"
+    },
+    {
+      "description": "12\" WATER MAIN",
+      "unit": "Linear Feet",
+      "quantity": 200,
+      "category": "Utilities",
+      "calculation_method": "CAD geometry takeoff"
+    },
+    {
+      "description": "Sanitary Sewer Manhole",
+      "unit": "Each",
+      "quantity": 2,
+      "category": "Drainage",
+      "calculation_method": "Counted from CAD structures"
+    },
+    {
+      "description": "Fertilizer",
+      "unit": "Lbs",
+      "quantity": 1228,
+      "category": "Erosion Control / Restoration",
+      "calculation_method": "Combined schedule locations"
+    },
+    {
+      "description": "Traffic Control",
+      "unit": "SqFt",
+      "quantity": 624,
+      "category": "Traffic Control",
+      "item_code": "634.0110",
+      "calculation_method": "Extracted from Estimate Of Quantities schedule"
+    },
+    {
+      "description": "Mobilization",
+      "unit": "LS",
+      "quantity": 1,
+      "category": "General",
+      "item_code": "Special",
+      "calculation_method": "Extracted from bid schedule"
+    }
+  ]
+}

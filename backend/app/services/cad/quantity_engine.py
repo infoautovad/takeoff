@@ -77,16 +77,15 @@ def _is_paper_space(entity: dict[str, Any]) -> bool:
     return "paper" in space or layer.startswith("ps") or "paper_space" in layer
 
 
-def _length_scale_to_feet(units: Any) -> float:
-    """Convert drawing length units to feet for LF takeoff."""
-    if units is None:
-        return 1.0
-    raw = str(units).strip().lower()
-    # ezdxf / INSUNITS common values
+def _length_scale_to_feet(units: Any) -> tuple[float, str | None, bool]:
+    """Convert drawing length units to feet and report assumption risk.
+
+    Returns: (scale_to_feet, note, assumed_flag)
+    """
     mapping = {
-        "0": 1.0,  # unitless — assume feet for US civil
         "1": 1.0 / 12.0,  # inches
         "2": 1.0,  # feet
+        "3": 3.0,  # yards
         "4": 1.0 / 25.4 / 12.0,  # mm
         "5": 1.0 / 2.54 / 12.0,  # cm
         "6": 3.280839895,  # meters
@@ -96,21 +95,56 @@ def _length_scale_to_feet(units: Any) -> float:
         "ft": 1.0,
         "feet": 1.0,
         "foot": 1.0,
+        "us survey foot": 1.000002,
+        "us survey feet": 1.000002,
+        "us-ft": 1.000002,
+        "ftus": 1.000002,
+        "yard": 3.0,
+        "yards": 3.0,
+        "yd": 3.0,
         "mm": 1.0 / 25.4 / 12.0,
+        "millimeter": 1.0 / 25.4 / 12.0,
+        "millimeters": 1.0 / 25.4 / 12.0,
         "cm": 1.0 / 2.54 / 12.0,
+        "centimeter": 1.0 / 2.54 / 12.0,
+        "centimeters": 1.0 / 2.54 / 12.0,
         "m": 3.280839895,
         "meter": 3.280839895,
         "meters": 3.280839895,
         "metre": 3.280839895,
         "metres": 3.280839895,
+        "km": 3280.839895,
+        "kilometer": 3280.839895,
+        "kilometers": 3280.839895,
     }
+    if units is None:
+        return (
+            1.0,
+            "Drawing units were not provided; assumed feet for length takeoff. Verify drawing scale.",
+            True,
+        )
+
+    raw = str(units).strip().lower()
+    if raw in {"", "none", "null", "unknown", "unitless", "0"}:
+        return (
+            1.0,
+            "Drawing units are unitless/unknown; assumed feet for length takeoff. Verify drawing scale.",
+            True,
+        )
+
     if raw in mapping:
-        return mapping[raw]
-    # strings like "InsertionUnits.Feet"
+        return mapping[raw], None, False
+
+    # Strings like "InsertionUnits.Feet" or "Units.Meters"
     for key, scale in mapping.items():
         if key.isalpha() and key in raw:
-            return scale
-    return 1.0
+            return scale, None, False
+
+    return (
+        1.0,
+        f"Unrecognized drawing units '{units}'; assumed feet for length takeoff. Verify drawing scale.",
+        True,
+    )
 
 
 def _size_hints_from_texts(extraction: dict[str, Any]) -> dict[str, str]:
@@ -311,7 +345,7 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
     area_by_key: dict[str, dict[str, Any]] = {}
     count_by_key: dict[str, dict[str, Any]] = {}
     volume_by_key: dict[str, dict[str, Any]] = {}
-    length_scale = _length_scale_to_feet(extraction.get("units"))
+    length_scale, length_scale_note, length_scale_assumed = _length_scale_to_feet(extraction.get("units"))
     size_by_layer = _size_hints_from_texts(extraction)
 
     def add_length(
@@ -330,6 +364,11 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
         if _is_noise_layer(layer) and "pipe" not in description.lower():
             return
         scaled = float(quantity) * length_scale
+        method_with_units = method
+        if length_scale_note:
+            method_with_units = f"{method}; {length_scale_note}"
+        if length_scale_assumed:
+            confidence = min(confidence, 84.0)
         unit = "LF"
         # Aggregate by description+size+unit (not layer) so LINE/POLYLINE/PIPE merge
         key = f"{description.lower()}|{unit}|{(size or '').lower()}"
@@ -342,14 +381,16 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
                 "quantity": 0.0,
                 "layer": layer,
                 "entity_type": entity_type,
-                "calculation_method": method,
+                "calculation_method": method_with_units,
                 "source_reference": source_label,
                 "confidence": confidence,
                 "size": size,
+                "needs_review": bool(length_scale_assumed),
             },
         )
         row["quantity"] += scaled
         row["confidence"] = max(float(row["confidence"]), confidence)
+        row["needs_review"] = bool(row.get("needs_review")) or bool(length_scale_assumed)
         if size and (not row.get("size")):
             row["size"] = size
 
@@ -438,9 +479,13 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
                 "quantity": 0.0,
                 "layer": name,
                 "entity_type": entity_type,
-                "calculation_method": f"Sum of {entity_type} areas on '{name}'",
+                "calculation_method": (
+                    f"Sum of {entity_type} areas on '{name}'"
+                    + (f"; {length_scale_note}" if length_scale_note else "")
+                ),
                 "source_reference": source_label,
-                "confidence": 78.0,
+                "confidence": 74.0 if length_scale_assumed else 78.0,
+                "needs_review": bool(length_scale_assumed),
             },
         )
         row["quantity"] += value
@@ -696,6 +741,14 @@ def build_quantities(extraction: dict[str, Any], source_label: str) -> list[dict
     if not extraction_has_bid_schedule(extraction):
         items = expand_cad_takeoff(extraction, items)
     items = [enrich_quantity_item(row) for row in items]
+    if length_scale_assumed:
+        for row in items:
+            if not bool(row.get("needs_review")):
+                continue
+            try:
+                row["confidence"] = min(float(row.get("confidence") or 0), 84.0)
+            except (TypeError, ValueError):
+                row["confidence"] = 84.0
 
     from app.services.traffic_control import consolidate_traffic_control_signs
 

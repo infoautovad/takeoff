@@ -1,0 +1,50 @@
+{
+  "id": "sample_pdf_schedule",
+  "items": [
+    {
+      "description": "Traffic Control",
+      "unit": "SqFt",
+      "quantity": 624,
+      "category": "Traffic Control",
+      "item_code": "634.0110",
+      "calculation_method": "Extracted from Estimate Of Quantities schedule"
+    },
+    {
+      "description": "Temporary Mailbox",
+      "unit": "Each",
+      "quantity": 17,
+      "category": "Traffic Control",
+      "item_code": "999.0023",
+      "calculation_method": "Extracted from Estimate Of Quantities schedule"
+    },
+    {
+      "description": "Winter Maintenance",
+      "unit": "LS",
+      "quantity": 1,
+      "category": "General",
+      "item_code": "Special",
+      "calculation_method": "Extracted from Estimate Of Quantities schedule"
+    },
+    {
+      "description": "8\" PVC Water Main",
+      "unit": "Ft",
+      "quantity": 245,
+      "category": "Utilities",
+      "calculation_method": "Plan callout and profile scale"
+    },
+    {
+      "description": "Fire Hydrant",
+      "unit": "EA",
+      "quantity": 2,
+      "category": "Utilities",
+      "calculation_method": "Counted from utility plan"
+    },
+    {
+      "description": "STOP Sign R1-1",
+      "unit": "Each",
+      "quantity": 4,
+      "category": "Signing",
+      "calculation_method": "Graphic symbol count"
+    }
+  ]
+}

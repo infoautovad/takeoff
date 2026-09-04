@@ -22,6 +22,14 @@ def _load_case(case_id: str) -> tuple[dict, dict]:
     return expected, extraction
 
 
+def _load_actual_case(case_id: str) -> tuple[dict, list[dict]]:
+    case_dir = GOLD_ROOT / case_id
+    expected = json.loads((case_dir / "expected_eoq.json").read_text(encoding="utf-8"))
+    actual = json.loads((case_dir / "actual_items.json").read_text(encoding="utf-8"))
+    rows = actual.get("items") if isinstance(actual, dict) else actual
+    return expected, list(rows or [])
+
+
 def test_extract_size_and_network_helpers():
     assert extract_size_label('8" WATER MAIN') == "8-Inch"
     assert extract_size_label("P_WATER_12IN") == "12-Inch"
@@ -35,6 +43,21 @@ def test_gold_sample_utility_quantity_engine():
     report = compare_eoq(expected_raw, items)
 
     assert report.recall >= 0.85, summarize_report(report)
+    assert not report.misses, summarize_report(report)
+    assert len(report.qty_errors) == 0, summarize_report(report)
+
+
+@pytest.mark.parametrize(
+    ("case_id", "min_recall"),
+    [
+        ("sample_pdf_schedule", 0.95),
+        ("sample_mixed_project", 0.9),
+    ],
+)
+def test_gold_regression_actual_item_cases(case_id: str, min_recall: float):
+    expected_raw, actual_items = _load_actual_case(case_id)
+    report = compare_eoq(expected_raw, actual_items)
+    assert report.recall >= min_recall, summarize_report(report)
     assert not report.misses, summarize_report(report)
     assert len(report.qty_errors) == 0, summarize_report(report)
 

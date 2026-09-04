@@ -1,0 +1,50 @@
+{
+  "id": "sample_pdf_schedule",
+  "name": "PDF bid schedule with traffic control and utility rows",
+  "notes": "Synthetic expected EOQ from a schedule-led PDF extraction.",
+  "items": [
+    {
+      "description": "Traffic Control",
+      "unit": "SQFT",
+      "category": "Traffic Control",
+      "item_code": "634.0110",
+      "quantity": 624,
+      "quantity_abs_tolerance": 0.5,
+      "required": true
+    },
+    {
+      "description": "Temporary Mailbox",
+      "unit": "EA",
+      "category": "Traffic Control",
+      "item_code": "999.0023",
+      "quantity": 17,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "Winter Maintenance",
+      "unit": "LS",
+      "category": "General",
+      "item_code": "Special",
+      "quantity": 1,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "8-Inch Water Main",
+      "unit": "LF",
+      "category": "Utilities",
+      "quantity": 245,
+      "quantity_abs_tolerance": 3,
+      "required": true
+    },
+    {
+      "description": "Fire Hydrant",
+      "unit": "EA",
+      "category": "Utilities",
+      "quantity": 2,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    }
+  ]
+}

@@ -39,6 +39,11 @@ export const useProjectsStore = defineStore('projects', () => {
     }
   }
 
+  async function fetchDocuments(projectId: number) {
+    documents.value = await documentsApi.listDocuments(projectId)
+    return documents.value
+  }
+
   async function create(payload: ProjectPayload) {
     const project = await projectsApi.createProject(payload)
     projects.value.unshift(project)
@@ -101,6 +106,7 @@ export const useProjectsStore = defineStore('projects', () => {
     error,
     fetchProjects,
     fetchProject,
+    fetchDocuments,
     create,
     update,
     archive,

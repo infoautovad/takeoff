@@ -60,6 +60,11 @@ const analyzeStages = ref(pdfAnalyzeStages)
 
 const autovadItems = computed(() => detail.value?.autovad_items || [])
 
+function displayUnit(value: unknown): string {
+  if (value == null || value === '') return '—'
+  return formatUnit(String(value))
+}
+
 function pickFile(v: File[] | File | null): File | null {
   if (!v) return null
   return Array.isArray(v) ? v[0] || null : v
@@ -413,7 +418,7 @@ function formatQty(q: unknown) {
                 <div class="font-weight-medium">{{ it.description || '—' }}</div>
                 <div v-if="it.calculation_method" class="text-caption muted">{{ it.calculation_method }}</div>
               </td>
-              <td class="text-uppercase text-center">{{ formatUnit(it.unit) }}</td>
+              <td class="text-uppercase text-center">{{ displayUnit(it.unit) }}</td>
               <td class="text-right">{{ formatQty(it.quantity) }}</td>
               <td>{{ it.confidence != null ? `${Number(it.confidence).toFixed(2)}%` : '—' }}</td>
               <td class="text-caption">{{ it.category || it.group || '—' }}</td>

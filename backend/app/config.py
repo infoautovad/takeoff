@@ -13,11 +13,11 @@ class Settings(BaseSettings):
 
     app_name: str = "AutoVAD"
     app_env: str = "development"
-    secret_key: str = "dev-secret-change-me-civilmind-ai-2026"
+    secret_key: str = "dev-secret-change-me-autovad-ai-2026"
     access_token_expire_minutes: int = 1440
     algorithm: str = "HS256"
 
-    database_url: str = "sqlite:///./civilmind.db"
+    database_url: str = "sqlite:///./autovad.db"
 
     storage_backend: str = "local"  # local | s3
     local_storage_path: str = "./storage"
@@ -79,6 +79,11 @@ class Settings(BaseSettings):
     design_automation_fallback_model_derivative: bool = True
     cad_engine_enabled: bool = True
     cad_openai_enrichment: bool = True
+    # Entity payload caps persisted on CadModel.entities_json (0 = keep all parsed rows).
+    cad_store_lines_limit: int = 5000
+    cad_store_polylines_limit: int = 5000
+    cad_store_circles_limit: int = 2000
+    cad_store_hatches_limit: int = 2000
 
     @property
     def cors_origin_list(self) -> list[str]:

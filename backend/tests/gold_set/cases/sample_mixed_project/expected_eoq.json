@@ -1,0 +1,55 @@
+{
+  "id": "sample_mixed_project",
+  "name": "Mixed CAD and PDF quantity merge",
+  "notes": "Synthetic expected EOQ for a mixed project combining utility CAD and schedule-led PDF rows.",
+  "items": [
+    {
+      "description": "8-Inch Water Main",
+      "unit": "LF",
+      "category": "Utilities",
+      "quantity": 500,
+      "quantity_abs_tolerance": 5,
+      "required": true
+    },
+    {
+      "description": "12-Inch Water Main",
+      "unit": "LF",
+      "category": "Utilities",
+      "quantity": 200,
+      "quantity_abs_tolerance": 3,
+      "required": true
+    },
+    {
+      "description": "Sanitary Sewer Manhole",
+      "unit": "EA",
+      "category": "Drainage",
+      "quantity": 2,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    },
+    {
+      "description": "Fertilizer",
+      "unit": "LB",
+      "category": "Erosion Control / Restoration",
+      "quantity": 1228,
+      "quantity_abs_tolerance": 2,
+      "required": true
+    },
+    {
+      "description": "Traffic Control",
+      "unit": "SQFT",
+      "category": "Traffic Control",
+      "quantity": 624,
+      "quantity_abs_tolerance": 1,
+      "required": true
+    },
+    {
+      "description": "Mobilization",
+      "unit": "LS",
+      "category": "General",
+      "quantity": 1,
+      "quantity_abs_tolerance": 0,
+      "required": true
+    }
+  ]
+}

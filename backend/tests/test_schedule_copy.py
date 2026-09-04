@@ -4,16 +4,19 @@ from app.services.ai_analysis import (
     _CODE_COL_NAMES,
     _DESC_COL_NAMES,
     _QTY_COL_NAMES,
+    _analyze_pdf_drawings_with_vision,
     _analyze_heuristic,
     _content_has_eoq_schedule,
     _finalize_analysis,
     _find_col,
     _has_authoritative_schedule,
     _is_bid_schedule_table,
+    _items_from_openai_payload,
     _is_plan_device_table,
 )
 from app.services.extractors import ExtractedContent
 from app.services.civil_estimator import extraction_has_bid_schedule
+from app.services.eoq_groups import assign_group_category
 
 
 def _bid_items_table() -> dict:
@@ -293,3 +296,358 @@ def test_finalize_keeps_core_pay_items_when_only_f2_list_exists():
     assert "Remove Storm Sewer" in by_desc
     assert "TYPE 3 BARRICADES, 8' DOUBLE SIDED" in by_desc
     assert len(result["items"]) >= 6
+
+
+def test_strict_schedule_transcription_preserves_blank_cells_and_categories():
+    table = {
+        "page": 2,
+        "rows": [
+            ["ITEM NUMBER", "BID ITEM", "DESCRIPTION", "UNITS", "EST. QTY"],
+            ["", "", "General", "", ""],
+            ["6", "0550", "Tax on City Furnished Materials", "", ""],
+            ["", "", "Roadway", "", ""],
+            ["7", "201.001", "Unclassified Excavation", "CY", "1200"],
+        ],
+    }
+    content = ExtractedContent(text="Bid Items table", tables=[table])
+    result = _analyze_heuristic(filename="plans.pdf", content=content, document_id=1)
+
+    tax = next(i for i in result["items"] if str(i.get("item_code") or "") == "0550")
+    excav = next(i for i in result["items"] if "Unclassified Excavation" in str(i.get("description") or ""))
+
+    assert tax["description"] == "Tax on City Furnished Materials"
+    assert tax["category"] == "General"
+    assert tax.get("raw_unit") == ""
+    assert tax.get("raw_quantity") == ""
+    assert bool(tax.get("quantity_blank")) is True
+    assert float(tax["quantity"]) == 0.0
+    assert tax.get("status") == "needs_review"
+
+    assert excav["category"] == "Roadway"
+    assert str(excav.get("unit") or "").upper() in {"CY", "CUYD"}
+    assert float(excav["quantity"]) == 1200.0
+
+
+def test_non_standard_grid_headers_are_not_treated_as_bid_schedule():
+    table = {
+        "page": 4,
+        "rows": [
+            ["Description", "Unit", "Quantity"],
+            ["Company Name", "", ""],
+            ["Tax on City Furnished Materials", "", ""],
+        ],
+    }
+    content = ExtractedContent(text="", tables=[table])
+    result = _analyze_heuristic(filename="plans.pdf", content=content, document_id=1)
+    assert not result["items"]
+
+
+def test_schedule_header_row_can_appear_after_title_row():
+    table = {
+        "page": 2,
+        "rows": [
+            ["General Items", "", "", "", ""],
+            ["ITEM NUMBER", "BID ITEM", "DESCRIPTION", "UNITS", "EST. QTY"],
+            ["1", "9.0010", "Mobilization", "LS", "1"],
+        ],
+    }
+    content = ExtractedContent(text="Estimate Of Quantities", tables=[table])
+    assert _is_bid_schedule_table(table)
+    result = _analyze_heuristic(filename="plans.pdf", content=content, document_id=1)
+    by_desc = {str(i.get("description")): i for i in result["items"]}
+    assert by_desc["Mobilization"]["item_code"] == "9.0010"
+
+
+def test_category_header_detected_when_label_is_not_in_description_column():
+    table = {
+        "page": 3,
+        "rows": [
+            ["ITEM NUMBER", "BID ITEM", "DESCRIPTION", "UNITS", "EST. QTY"],
+            ["General Items", "", "", "", ""],
+            ["1", "9.0010", "Mobilization", "LS", "1"],
+            ["Water Main Items", "", "", "", ""],
+            ["2", "9.2000", "Install City Furnished 6 in. C900 DR18 PVC Water Main", "LF", "463"],
+        ],
+    }
+    content = ExtractedContent(text="Estimate Of Quantities", tables=[table])
+    result = _analyze_heuristic(filename="plans.pdf", content=content, document_id=1)
+    by_desc = {str(i.get("description")): i for i in result["items"]}
+    assert by_desc["Mobilization"]["category"] == "General Items"
+    assert by_desc["Install City Furnished 6 in. C900 DR18 PVC Water Main"]["category"] == "Water Main Items"
+
+
+def test_city_furnished_water_items_do_not_stick_to_general_group():
+    water = assign_group_category(
+        {
+            "description": "Install City Furnished 6 in. C900 DR18 PVC Water Main",
+            "category": "General",
+        }
+    )
+    tax = assign_group_category(
+        {
+            "description": "Tax on City Furnished Materials",
+            "category": "General",
+        }
+    )
+    assert water["category"] == "Watermain"
+    assert tax["category"] == "General"
+
+
+def test_openai_payload_preserves_blank_schedule_cells():
+    rows = _items_from_openai_payload(
+        {
+            "items": [
+                {
+                    "row_type": "schedule",
+                    "item_number": "2",
+                    "item_code": "9.0550",
+                    "description": "Tax on City Furnished Materials",
+                    "category": "General Items",
+                    "unit": "",
+                    "quantity": "",
+                    "source_page": 1,
+                    "source_reference": "Bid Items / EOQ table",
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                }
+            ]
+        },
+        filename="scan.pdf",
+        document_id=1,
+        default_method="OpenAI vision — plan sheet",
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.get("table_transcribed") is True
+    assert row.get("schedule_authoritative") is True
+    assert row.get("item_code") == "9.0550"
+    assert row.get("item_number") == "2"
+    assert row.get("raw_unit") == ""
+    assert row.get("raw_quantity") == ""
+    assert row.get("unit_blank") is True
+    assert row.get("quantity_blank") is True
+    assert float(row.get("quantity") or 0) == 0.0
+
+
+def test_vision_schedule_mode_suppresses_non_schedule_and_rereads_missing_codes(monkeypatch, tmp_path):
+    import fitz
+
+    from app.services.extractors import PageText
+
+    pdf_path = tmp_path / "one_page_schedule.pdf"
+    doc = fitz.open()
+    try:
+        doc.new_page(width=1000, height=700)
+        doc.save(pdf_path)
+    finally:
+        doc.close()
+
+    responses = [
+        {
+            "summary": "Schedule found on page 1",
+            "facts": [{"key": "eoq_table_found", "value": "true", "source_page": 1}],
+            "items": [
+                {
+                    "row_type": "schedule",
+                    "item_number": "1",
+                    "item_code": "9.0010",
+                    "description": "Mobilization",
+                    "category": "General Items",
+                    "unit": "LS",
+                    "quantity": "1",
+                    "source_page": 1,
+                    "source_reference": "Bid Items / EOQ table",
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                },
+                {
+                    "row_type": "schedule",
+                    "item_number": "2",
+                    "item_code": "",
+                    "description": "Tax on City Furnished Materials",
+                    "category": "General Items",
+                    "unit": "LS",
+                    "quantity": "",
+                    "source_page": 1,
+                    "source_reference": "Bid Items / EOQ table",
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                },
+                {
+                    "row_type": "other",
+                    "description": "Install City Furnished 6 in. C900 DR18 PVC Water Main",
+                    "category": "Water Main",
+                    "unit": "LF",
+                    "quantity": "463",
+                    "source_page": 1,
+                    "source_reference": "Plan callout",
+                    "calculation_method": "Directly extracted from printed callout",
+                },
+            ],
+            "needs_review": True,
+        },
+        {
+            "summary": "Focused schedule reread",
+            "facts": [{"key": "eoq_table_found", "value": "true", "source_page": 1}],
+            "items": [
+                {
+                    "row_type": "schedule",
+                    "item_number": "1",
+                    "item_code": "9.0010",
+                    "description": "Mobilization",
+                    "category": "General Items",
+                    "unit": "LS",
+                    "quantity": "1",
+                    "source_page": 1,
+                    "source_reference": "Bid Items / EOQ table",
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                },
+                {
+                    "row_type": "schedule",
+                    "item_number": "2",
+                    "item_code": "9.0550",
+                    "description": "Tax on City Furnished Materials",
+                    "category": "General Items",
+                    "unit": "LS",
+                    "quantity": "",
+                    "source_page": 1,
+                    "source_reference": "Bid Items / EOQ table",
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                },
+            ],
+            "needs_review": False,
+        },
+    ]
+    calls: list[list[int]] = []
+
+    def fake_vision_json(system: str, user: str, images: list[dict], temperature: float = 0.1):
+        _ = (system, user, temperature)
+        calls.append([int(img.get("page") or 0) for img in images])
+        idx = min(len(calls) - 1, len(responses) - 1)
+        return responses[idx]
+
+    monkeypatch.setattr("app.services.openai_client.ask_openai_vision_json", fake_vision_json)
+
+    content = ExtractedContent(
+        text="",
+        page_count=1,
+        pages=[PageText(page=1, text="Estimate Of Quantities - Sheet B1")],
+        tables=[],
+    )
+    vision = _analyze_pdf_drawings_with_vision(
+        filename="one_page_schedule.pdf",
+        content=content,
+        document_id=99,
+        pdf_path=pdf_path,
+        max_pages=1,
+        dpi=120,
+        min_score=18.0,
+        force_utility_pages=True,
+        scan_all_pages=True,
+        batch_pages=1,
+    )
+
+    by_desc = {str(i.get("description")): i for i in (vision.get("items") or [])}
+    assert vision.get("schedule_mode_active") is True
+    assert "Install City Furnished 6 in. C900 DR18 PVC Water Main" not in by_desc
+    assert by_desc["Mobilization"]["item_code"] == "9.0010"
+    assert by_desc["Tax on City Furnished Materials"]["item_code"] == "9.0550"
+    assert by_desc["Tax on City Furnished Materials"].get("quantity_blank") is True
+    assert len(calls) >= 2  # initial batch + focused reread
+
+
+def test_openai_payload_detail_table_row_type_schedule_not_promoted():
+    rows = _items_from_openai_payload(
+        {
+            "items": [
+                {
+                    "row_type": "schedule",
+                    "description": 'Class M6 Concrete — 18" Dia. Outlet, Constant',
+                    "category": "Storm Sewer",
+                    "unit": "CY",
+                    "quantity": "5.5",
+                    "source_page": 12,
+                    "source_reference": "Estimated Quantities table - 10' Long Inlet",
+                    "calculation_method": "Extracted from Estimated Quantities table.",
+                }
+            ]
+        },
+        filename="plans.pdf",
+        document_id=1,
+        default_method="OpenAI vision — plan sheet",
+    )
+    assert len(rows) == 1
+    row = rows[0]
+    assert not bool(row.get("table_transcribed"))
+    assert not bool(row.get("schedule_authoritative"))
+
+
+def test_vision_detail_tables_do_not_lock_strict_schedule_mode(monkeypatch, tmp_path):
+    import fitz
+
+    from app.services.extractors import PageText
+
+    pdf_path = tmp_path / "detail_tables.pdf"
+    doc = fitz.open()
+    try:
+        doc.new_page(width=1000, height=700)
+        doc.save(pdf_path)
+    finally:
+        doc.close()
+
+    calls: list[list[int]] = []
+
+    def fake_vision_json(system: str, user: str, images: list[dict], temperature: float = 0.1):
+        _ = (system, user, temperature)
+        calls.append([int(img.get("page") or 0) for img in images])
+        return {
+            "summary": "Estimated quantities detail table",
+            "facts": [{"key": "eoq_table_found", "value": "true", "source_page": 1}],
+            "items": [
+                {
+                    "row_type": "schedule",
+                    "description": 'Class M6 Concrete — 18" Dia. Outlet, Constant',
+                    "category": "Storm Sewer",
+                    "unit": "CY",
+                    "quantity": "5.5",
+                    "source_page": 1,
+                    "source_reference": "Estimated Quantities table - 10' Long Inlet",
+                    "calculation_method": "Extracted from Estimated Quantities table.",
+                },
+                {
+                    "row_type": "other",
+                    "description": "Install City Furnished 6 in. C900 DR18 PVC Water Main",
+                    "category": "Water Main",
+                    "unit": "LF",
+                    "quantity": "463",
+                    "source_page": 1,
+                    "source_reference": "Plan callout",
+                    "calculation_method": "Directly extracted from printed callout",
+                },
+            ],
+            "needs_review": True,
+        }
+
+    monkeypatch.setattr("app.services.openai_client.ask_openai_vision_json", fake_vision_json)
+
+    content = ExtractedContent(
+        text="",
+        page_count=1,
+        pages=[PageText(page=1, text="Plan detail sheet")],
+        tables=[],
+    )
+    vision = _analyze_pdf_drawings_with_vision(
+        filename="detail_tables.pdf",
+        content=content,
+        document_id=99,
+        pdf_path=pdf_path,
+        max_pages=1,
+        dpi=120,
+        min_score=18.0,
+        force_utility_pages=True,
+        scan_all_pages=True,
+        batch_pages=1,
+    )
+
+    assert vision.get("schedule_mode_active") is False
+    by_desc = {str(i.get("description")): i for i in (vision.get("items") or [])}
+    assert 'Class M6 Concrete — 18" Dia. Outlet, Constant' in by_desc
+    assert "Install City Furnished 6 in. C900 DR18 PVC Water Main" in by_desc
+    assert len(calls) == 1  # no focused reread when strict schedule mode does not lock
