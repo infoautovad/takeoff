@@ -34,7 +34,7 @@ EOQ_GROUP_ORDER: list[str] = [
     "Building",
     "Landscaping & Irrigation",
     "Miscellaneous",
-    "Unmapped Takeoff",
+    "Special",
 ]
 
 # keyword (lower) → group. First match wins — order matters (specific before generic).
@@ -393,7 +393,8 @@ _CATEGORY_ALIASES: dict[str, str] = {
     "traffic control": "Traffic Control",
     "general / traffic control": "General",
     "bid schedule": "Miscellaneous",
-    "unmapped takeoff": "Unmapped Takeoff",
+    "unmapped takeoff": "Special",
+    "special": "Special",
 }
 
 
@@ -414,7 +415,7 @@ def resolve_eoq_group(
         alias = _CATEGORY_ALIASES.get(cat_low)
         if alias:
             # Still refine Utilities/Drainage/General using description when possible
-            if alias in {"Watermain", "Storm Sewer", "Sanitary Sewer", "Miscellaneous", "General"}:
+            if alias in {"Watermain", "Storm Sewer", "Sanitary Sewer", "Miscellaneous", "General", "Special"}:
                 refined = _match_description(description or "")
                 if refined:
                     return refined
@@ -425,8 +426,8 @@ def resolve_eoq_group(
     matched = _match_description(f"{description or ''} {category or ''}")
     if matched:
         return matched
-    if cat and cat.lower() == "unmapped takeoff":
-        return "Unmapped Takeoff"
+    if cat_low in {"unmapped takeoff", "special"}:
+        return "Special"
     return "Miscellaneous"
 
 
@@ -503,11 +504,6 @@ def group_items(
 def assign_group_category(item: dict[str, Any]) -> dict[str, Any]:
     """Set item['category'] to the canonical EOQ group (copy)."""
     out = dict(item)
-    # Preserve unmapped marker as group
-    if str(out.get("bid_match_method") or "") == "unmapped" or str(out.get("category") or "").lower() == "unmapped takeoff":
-        out["category"] = "Unmapped Takeoff"
-        out["eoq_group"] = "Unmapped Takeoff"
-        return out
     group = resolve_eoq_group(description=str(out.get("description") or ""), category=out.get("category"))
     out["category"] = group
     out["eoq_group"] = group

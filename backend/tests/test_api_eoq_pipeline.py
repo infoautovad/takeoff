@@ -248,6 +248,13 @@ def test_generate_eoq_api_maps_to_autovad_master_template(monkeypatch):
                     "quantity": 1,
                     "source_reference": "Sheet F2",
                     "confidence": 92,
+                },
+                {
+                    "description": "Watermain Adjustment",
+                    "unit": "EA",
+                    "quantity": 1,
+                    "source_reference": "Sheet U1",
+                    "confidence": 95,
                 }
             ]
         ]
@@ -264,6 +271,13 @@ def test_generate_eoq_api_maps_to_autovad_master_template(monkeypatch):
         assert row["item_code"] == "634.0120"
         assert str(row["unit"]).upper() == "LS"
         assert row["bid_template_line_id"] == 1
+        special_row = next(
+            r
+            for r in body["items"]
+            if str(r.get("description") or "").lower() == "watermain adjustment"
+        )
+        assert special_row["bid_template_line_id"] is None
+        assert special_row["category"] == "Watermain"
         assert "autovad master template" in str(body.get("notes") or "").lower()
     finally:
         client.close()

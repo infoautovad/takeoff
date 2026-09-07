@@ -123,6 +123,14 @@ def test_eoq_group_sections():
     assert resolve_eoq_group(description="Winter Maintenance") == "General"
     assert resolve_eoq_group(description="Dam Embankment Fill") == "Dams & Reservoirs"
     assert resolve_eoq_group(description="Brickwork") == "Building"
+    assert (
+        resolve_eoq_group(
+            description="Watermain Adjustment",
+            category="Unmapped takeoff",
+        )
+        == "Watermain"
+    )
+    assert resolve_eoq_group(description="As-built fee", category="Unmapped takeoff") == "Special"
 
     rows = [
         {"description": "Mobilization", "category": None},
@@ -137,6 +145,18 @@ def test_eoq_group_sections():
     names = [s[0] for s in sections]
     assert names.index("General") < names.index("Removals")
     assert names.index("Removals") < names.index("Watermain")
+
+
+def test_standard_bid_number_displays_special_for_unmatched():
+    from types import SimpleNamespace
+
+    from app.services.eoq_service import standard_bid_item_number
+
+    matched = SimpleNamespace(bid_template_line_id=12, item_code="634.0110")
+    special = SimpleNamespace(bid_template_line_id=None, item_code="01 55 26")
+
+    assert standard_bid_item_number(matched) == "634.0110"
+    assert standard_bid_item_number(special) == "Special"
 
 
 def test_ensure_mobilization_item_always_one_ls_under_general():

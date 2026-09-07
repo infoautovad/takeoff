@@ -19,7 +19,7 @@ export const EOQ_GROUP_ORDER = [
   'Structures',
   'Landscaping & Irrigation',
   'Miscellaneous',
-  'Unmapped Takeoff',
+  'Special',
 ] as const
 
 const CATEGORY_ALIASES: Record<string, string> = {
@@ -40,7 +40,8 @@ const CATEGORY_ALIASES: Record<string, string> = {
   'traffic control': 'Traffic Control',
   'general / traffic control': 'General',
   'bid schedule': 'Miscellaneous',
-  'unmapped takeoff': 'Unmapped Takeoff',
+  'unmapped takeoff': 'Special',
+  special: 'Special',
 }
 
 const GROUP_RULES: Array<{ keys: string[]; group: string }> = [
@@ -249,7 +250,7 @@ export function resolveEoqGroup(description?: string | null, category?: string |
   if (cat) {
     const alias = CATEGORY_ALIASES[catLow]
     if (alias) {
-      if (['Watermain', 'Storm Sewer', 'Sanitary Sewer', 'Miscellaneous', 'General'].includes(alias)) {
+      if (['Watermain', 'Storm Sewer', 'Sanitary Sewer', 'Miscellaneous', 'General', 'Special'].includes(alias)) {
         const refined = matchDescription(description || '')
         if (refined) return refined
       }
@@ -259,7 +260,7 @@ export function resolveEoqGroup(description?: string | null, category?: string |
   }
   const matched = matchDescription(`${description || ''} ${category || ''}`)
   if (matched) return matched
-  if (catLow === 'unmapped takeoff') return 'Unmapped Takeoff'
+  if (catLow === 'unmapped takeoff' || catLow === 'special') return 'Special'
   return 'Miscellaneous'
 }
 

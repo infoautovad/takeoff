@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.models.bid import BidTemplate, BidTemplateLine
 from app.models.eoq import EOQ
 from app.services.csi_mapper import enrich_quantity_item, looks_like_csi, normalize_csi_code, normalize_unit
+from app.services.eoq_groups import resolve_eoq_group
 
 
 MASTER_TEMPLATE_FILENAME = "Bid Item List 2026.xlsx"
@@ -288,8 +289,8 @@ def map_eoq_to_template(db: Session, *, eoq_id: int, template_id: int | None = N
             if hit.item_code:
                 item.item_code = hit.item_code
             item.unit = str(hit.unit or item.unit or "UNIT").strip() or "UNIT"
-            # Leave the Unmapped takeoff bucket once a bid line is linked
-            if (item.category or "").strip().lower() == "unmapped takeoff":
+            # Leave legacy Special/Unmapped buckets once a bid line is linked.
+            if (item.category or "").strip().lower() in {"unmapped takeoff", "special"}:
                 item.category = "Bid schedule"
             if hit.default_rate is not None and item.rate is None:
                 item.rate = Decimal(str(hit.default_rate))
@@ -310,8 +311,10 @@ def map_eoq_to_template(db: Session, *, eoq_id: int, template_id: int | None = N
             item.bid_template_line_id = None
             item.bid_match_confidence = None
             item.unit = (item.unit or "UNIT").upper()
-            if (item.category or "").strip().lower() in {"", "bid schedule"}:
-                item.category = "Unmapped takeoff"
+            item.category = resolve_eoq_group(
+                description=item.description,
+                category=item.category,
+            )
             details.append(
                 {
                     "eoq_item_id": item.id,
@@ -371,7 +374,8 @@ def build_eoq_items_from_template(
 
     - Matched template lines (with evidence from plans/CAD) become EOQ rows using
       the template's Standard Bid Item Number, description, and unit.
-    - Unmatched takeoff rows are kept as Unmapped takeoff for engineer review.
+    - Unmatched takeoff rows are kept for engineer review (displayed as Special
+      in Std Bid No., but still grouped by the best-fit civil category).
     - Template lines with no plan evidence are NOT dumped into the EOQ.
     """
     sorted_lines = sorted(lines, key=lambda line: (line.sort_order, line.id))
@@ -437,7 +441,9 @@ def build_eoq_items_from_template(
             {
                 **item,
                 "unit": str(item.get("unit") or "UNIT").upper(),
-                "category": item.get("category") or "Unmapped takeoff",
+                # Keep original category/description so section grouping can route
+                # Special items into discipline buckets (Watermain, Traffic, etc).
+                "category": item.get("category"),
                 "bid_template_line_id": None,
                 "bid_match_confidence": 0,
                 "bid_match_method": "unmapped",

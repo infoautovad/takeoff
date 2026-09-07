@@ -1139,13 +1139,13 @@ const cadDocuments = computed(() =>
                   {{ eoqReviewCount }} need review
                 </v-chip>
                 <v-chip v-if="eoqUnmappedCount" size="small" color="warning" variant="tonal">
-                  {{ eoqUnmappedCount }} unmapped
+                  {{ eoqUnmappedCount }} Special
                 </v-chip>
                 <v-btn-toggle v-model="eoqFilter" mandatory density="compact" class="ms-auto" variant="outlined" divided>
                   <v-btn value="all" size="small">All</v-btn>
                   <v-btn value="review" size="small">Engineer Review</v-btn>
                   <v-btn value="verified" size="small">Verified</v-btn>
-                  <v-btn value="unmapped" size="small">Unmapped</v-btn>
+                  <v-btn value="unmapped" size="small">Special</v-btn>
                 </v-btn-toggle>
               </div>
               <v-table density="comfortable" class="eoq-table eoq-table">
@@ -1187,7 +1187,7 @@ const cadDocuments = computed(() =>
                           variant="tonal"
                           class="mt-1"
                         >
-                          Unmapped takeoff
+                          Special
                         </v-chip>
                       </td>
                       <td class="text-uppercase text-center">{{ formatUnit(item.unit) }}</td>

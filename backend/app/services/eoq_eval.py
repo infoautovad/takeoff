@@ -21,7 +21,8 @@ CATEGORY_ALIASES = {
     "structures": "Structures",
     "geometry": "Geometry",
     "bid schedule": "Bid schedule",
-    "unmapped takeoff": "Unmapped takeoff",
+    "unmapped takeoff": "Special",
+    "special": "Special",
 }
 
 
@@ -481,7 +482,7 @@ def compare_eoq(
         method = str(act.get("bid_match_method") or "")
         if method == "unmapped" or (
             act.get("bid_template_line_id") is None
-            and str(act.get("category") or "").lower() == "unmapped takeoff"
+            and str(act.get("category") or "").lower() in {"unmapped takeoff", "special"}
         ):
             report.unmapped_actual.append(act)
 

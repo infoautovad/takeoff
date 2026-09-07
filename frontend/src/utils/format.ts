@@ -98,6 +98,7 @@ export function standardBidItemNumber(item: {
   item_code?: string | null
 }): string {
   if (item.bid_template_line_id && item.item_code) return item.item_code
+  if (item.bid_template_line_id === null || item.bid_template_line_id === undefined) return 'Special'
   return ''
 }
 
@@ -105,6 +106,7 @@ export function isUnmappedEoqItem(item: {
   bid_template_line_id?: number | null
   category?: string | null
 }): boolean {
-  if (item.bid_template_line_id) return false
-  return String(item.category || '').toLowerCase() === 'unmapped takeoff'
+  if (item.bid_template_line_id === null || item.bid_template_line_id === undefined) return true
+  const category = String(item.category || '').toLowerCase()
+  return category === 'unmapped takeoff' || category === 'special'
 }

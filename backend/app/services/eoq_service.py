@@ -112,9 +112,11 @@ def ensure_mobilization_item(
 
 
 def standard_bid_item_number(item: EOQItem) -> str:
-    """Agency/state bid code from template; empty when AutoVAD default / unmapped."""
+    """Display code in Std Bid No. column; unmatched rows are labeled Special."""
     if item.bid_template_line_id and item.item_code:
         return str(item.item_code)
+    if item.bid_template_line_id is None:
+        return "Special"
     return ""
 
 
@@ -293,7 +295,7 @@ def generate_eoq_for_project(
                 and bid_match_f is not None
                 and bid_match_f < 85.0
             )
-            or str(grouped.get("category") or "").lower() == "unmapped takeoff"
+            or str(grouped.get("category") or "").lower() in {"unmapped takeoff", "special"}
             or (
                 not grouped.get("source_reference")
                 and not grouped.get("source_document_id")

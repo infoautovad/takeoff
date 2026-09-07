@@ -1,4 +1,5 @@
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
@@ -6,13 +7,33 @@ from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 from app.config import get_settings
 
 settings = get_settings()
+_BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _resolved_database_url(raw_url: str) -> str:
+    """Keep sqlite file URLs stable regardless process cwd."""
+    url = str(raw_url or "").strip()
+    if not url.lower().startswith("sqlite:///"):
+        return url
+    low = url.lower()
+    if low.startswith("sqlite:////") or ":memory:" in low or low.startswith("sqlite:///file:"):
+        return url
+    rel_path = url[len("sqlite:///") :]
+    db_path = Path(rel_path)
+    if db_path.is_absolute():
+        return url
+    abs_path = (_BACKEND_ROOT / db_path).resolve()
+    return f"sqlite:///{abs_path.as_posix()}"
+
+
+database_url = _resolved_database_url(settings.database_url)
 
 connect_args = {}
-if settings.database_url.startswith("sqlite"):
+if database_url.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 
 engine = create_engine(
-    settings.database_url,
+    database_url,
     connect_args=connect_args,
     pool_pre_ping=True,
 )
@@ -49,7 +70,7 @@ def _sqlite_table_exists(table: str) -> bool:
 
 def _migrate_sqlite() -> None:
     """Add missing columns / rebuild incomplete Stage 3+ tables for local SQLite."""
-    if not settings.database_url.startswith("sqlite"):
+    if not database_url.startswith("sqlite"):
         return
 
     # Rebuild tables that may have been created incomplete during iterative development.
