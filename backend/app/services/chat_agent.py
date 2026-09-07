@@ -13,7 +13,6 @@ from app.models.eoq import EOQ
 from app.models.cad import CadModel
 from app.models.document import Document
 from app.models.project import Project
-from app.services.bid_service import get_active_template, list_templates, map_eoq_to_template
 from app.services.eoq_service import generate_eoq_for_project, list_project_eoqs
 from app.services.cad.engine import detect_cad_format, process_cad_document
 from app.services.cost_service import generate_cost_estimate, list_sor
@@ -80,13 +79,6 @@ _ACTION_PATTERNS: list[tuple[str, list[str]]] = [
         [
             r"\b(process|run|parse)\b.*\b(cad|dxf|dwg|landxml|civil\s*3d)\b",
             r"\bcad\b.*\b(process|takeoff|quantit)",
-        ],
-    ),
-    (
-        "map_bid",
-        [
-            r"\b(map|match)\b.*\b(bid|template|bid\s*list)\b",
-            r"\bbid\b.*\b(map|match|template)\b",
         ],
     ),
     (
@@ -219,7 +211,6 @@ def help_text() -> str:
         "- **Update/export my Estimate Of Quantities Excel** (refreshes Estimate Of Quantities + download link)\n"
         "- **Export Estimate Of Quantities CSV**\n"
         "- **Process CAD** (DXF/DWG/LandXML)\n"
-        "- **Map bid template**\n"
         "- **Estimate cost** (needs SOR uploaded)\n"
         "- **Project status**\n\n"
         "You can also ask engineering questions about quantities, CSI, pavement, etc."
@@ -236,11 +227,10 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
         docs = list(db.scalars(select(Document).where(Document.project_id == project.id)).all())
         eoqs = list_project_eoqs(db, project.id)
         cad = list(db.scalars(select(CadModel).where(CadModel.project_id == project.id)).all())
-        templates = list_templates(db, project.id)
         sor = list_sor(db, project.id)
         msg = (
             f"{len(docs)} document(s), {len(eoqs)} Estimate Of Quantities version(s), "
-            f"{len(cad)} CAD model(s), {len(templates)} bid template(s), {len(sor)} SOR item(s)."
+            f"{len(cad)} CAD model(s), {len(sor)} SOR item(s)."
         )
         return ActionResult(
             action=name,
@@ -250,7 +240,6 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
                 "documents": len(docs),
                 "eoqs": len(eoqs),
                 "cad_models": len(cad),
-                "bid_templates": len(templates),
                 "sor_items": len(sor),
             },
         )
@@ -370,18 +359,10 @@ def _execute_one(db: Session, *, project: Project, user_id: int, action: Planned
         )
 
     if name == "map_bid":
-        active = get_active_template(db, project.id)
-        if not active:
-            return ActionResult(action=name, ok=False, message="No active bid template. Upload one in the Bid templates tab first.")
-        eoq = db.scalar(select(EOQ).where(EOQ.project_id == project.id).order_by(EOQ.version.desc()))
-        if not eoq:
-            return ActionResult(action=name, ok=False, message="No Estimate Of Quantities to map. Generate Estimate Of Quantities first.")
-        result = map_eoq_to_template(db, eoq_id=eoq.id, template_id=active.id)
         return ActionResult(
             action=name,
-            ok=True,
-            message=f"Mapped {result['matched']}/{result['total']} Estimate Of Quantities items to '{active.name}'.",
-            data=result,
+            ok=False,
+            message="Bid template mapping is disabled. AutoVAD now always uses the standard template flow.",
         )
 
     if name == "estimate_cost":

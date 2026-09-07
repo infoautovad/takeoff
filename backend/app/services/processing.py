@@ -12,26 +12,16 @@ from app.models.analysis import DocumentAnalysis
 from app.models.cad import CadJobStatus, CadModel
 from app.models.document import Document, ProcessingStatus
 from app.services.ai_analysis import analyze_content
-from app.services.bid_service import get_active_template
+from app.services.bid_service import get_autovad_master_bid_catalog
 from app.services.cad.engine import detect_cad_format, process_cad_document
 from app.services.extractors import extract_file
 from app.services.storage import storage_service
 
 
 def _bid_catalog_for_project(db: Session, project_id: int) -> list[dict]:
-    active = get_active_template(db, project_id)
-    if not active or not active.lines:
-        return []
-    return [
-        {
-            "item_code": line.item_code,
-            "csi_code": line.csi_code,
-            "description": line.description,
-            "unit": line.unit,
-            "line_number": line.line_number,
-        }
-        for line in sorted(active.lines, key=lambda x: (x.sort_order, x.id))
-    ]
+    _ = (db, project_id)
+    _name, catalog, _err = get_autovad_master_bid_catalog()
+    return catalog
 
 
 def process_document(db: Session, document: Document) -> DocumentAnalysis:

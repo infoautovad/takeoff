@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import re
+from dataclasses import dataclass
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
@@ -13,9 +14,123 @@ from openpyxl import load_workbook
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.config import get_settings
 from app.models.bid import BidTemplate, BidTemplateLine
 from app.models.eoq import EOQ
 from app.services.csi_mapper import enrich_quantity_item, looks_like_csi, normalize_csi_code, normalize_unit
+
+
+MASTER_TEMPLATE_FILENAME = "Bid Item List 2026.xlsx"
+_MASTER_TEMPLATE_CACHE: dict[str, Any] = {}
+
+
+@dataclass(frozen=True)
+class MasterBidTemplateLine:
+    id: int
+    line_number: str
+    csi_code: str | None
+    item_code: str | None
+    description: str
+    unit: str
+    default_rate: float | None = None
+    sort_order: int = 0
+
+
+def _default_master_template_path() -> Path:
+    return Path(__file__).resolve().parents[3] / MASTER_TEMPLATE_FILENAME
+
+
+def _resolve_master_template_path() -> Path:
+    settings = get_settings()
+    configured = str(settings.autovad_master_bid_template_path or "").strip()
+    if configured:
+        candidate = Path(configured).expanduser()
+        if not candidate.is_absolute():
+            candidate = (Path.cwd() / candidate).resolve()
+        return candidate
+    return _default_master_template_path()
+
+
+def _master_sheet_name() -> str:
+    settings = get_settings()
+    name = str(settings.autovad_master_bid_template_sheet or "").strip()
+    return name or "Bid Items"
+
+
+def _build_template_lines(rows: list[dict[str, Any]]) -> list[MasterBidTemplateLine]:
+    lines: list[MasterBidTemplateLine] = []
+    for idx, row in enumerate(rows, start=1):
+        csi = normalize_csi_code(row.get("csi_code") or row.get("item_code"))
+        if csi and not looks_like_csi(csi):
+            item_code = csi
+            csi_val = None
+        else:
+            item_code = row.get("item_code") or csi
+            csi_val = csi if csi and looks_like_csi(csi) else None
+        line_number = str(row.get("line_number") or idx).strip() or str(idx)
+        unit = normalize_unit(row.get("unit"))
+        default_rate = row.get("default_rate")
+        try:
+            default_rate = float(default_rate) if default_rate is not None else None
+        except (TypeError, ValueError):
+            default_rate = None
+        lines.append(
+            MasterBidTemplateLine(
+                id=idx,
+                line_number=line_number,
+                csi_code=csi_val,
+                item_code=str(item_code).strip() if item_code else None,
+                description=str(row.get("description") or "").strip(),
+                unit=unit,
+                default_rate=default_rate,
+                sort_order=idx,
+            )
+        )
+    return lines
+
+
+def get_autovad_master_template_lines(*, force_reload: bool = False) -> tuple[str, list[MasterBidTemplateLine], str | None]:
+    """Load AutoVAD master bid template lines from configured workbook."""
+    path = _resolve_master_template_path()
+    sheet_name = _master_sheet_name()
+    template_name = f"AutoVAD master template ({path.name})"
+
+    if not path.exists():
+        return template_name, [], f"Master bid template file not found: {path}"
+
+    try:
+        stat = path.stat()
+    except OSError as exc:
+        return template_name, [], f"Could not read master bid template metadata: {exc}"
+
+    cache_key = f"{path.resolve()}::{sheet_name}"
+    cache_token = f"{stat.st_mtime_ns}:{stat.st_size}"
+    if not force_reload and _MASTER_TEMPLATE_CACHE.get("key") == cache_key and _MASTER_TEMPLATE_CACHE.get("token") == cache_token:
+        return template_name, list(_MASTER_TEMPLATE_CACHE.get("lines") or []), None
+
+    rows = _parse_excel(path, preferred_sheet=sheet_name)
+    if not rows:
+        return template_name, [], f"No bid rows found in master template '{path.name}' (sheet '{sheet_name}')."
+    lines = _build_template_lines(_dedupe_bid_rows(rows))
+    _MASTER_TEMPLATE_CACHE["key"] = cache_key
+    _MASTER_TEMPLATE_CACHE["token"] = cache_token
+    _MASTER_TEMPLATE_CACHE["lines"] = list(lines)
+    return template_name, lines, None
+
+
+def get_autovad_master_bid_catalog(*, force_reload: bool = False) -> tuple[str, list[dict[str, Any]], str | None]:
+    name, lines, err = get_autovad_master_template_lines(force_reload=force_reload)
+    catalog = [
+        {
+            "item_code": line.item_code,
+            "csi_code": line.csi_code,
+            "description": line.description,
+            "unit": line.unit,
+            "line_number": line.line_number,
+        }
+        for line in lines
+    ]
+    return name, catalog, err
 
 
 def list_templates(db: Session, project_id: int) -> list[BidTemplate]:
@@ -172,7 +287,7 @@ def map_eoq_to_template(db: Session, *, eoq_id: int, template_id: int | None = N
                 item.csi_code = hit.csi_code
             if hit.item_code:
                 item.item_code = hit.item_code
-            item.unit = (hit.unit or item.unit or "UNIT").upper()
+            item.unit = str(hit.unit or item.unit or "UNIT").strip() or "UNIT"
             # Leave the Unmapped takeoff bucket once a bid line is linked
             if (item.category or "").strip().lower() == "unmapped takeoff":
                 item.category = "Bid schedule"
@@ -248,7 +363,9 @@ def apply_template_to_items(items: list[dict[str, Any]], lines: list[BidTemplate
 
 def build_eoq_items_from_template(
     extracted: list[dict[str, Any]],
-    lines: list[BidTemplateLine],
+    lines: list[BidTemplateLine | MasterBidTemplateLine],
+    *,
+    template_label: str = "template",
 ) -> list[dict[str, Any]]:
     """Match plan takeoff to the bid template — only include items needed for this project.
 
@@ -297,7 +414,7 @@ def build_eoq_items_from_template(
                 "csi_code": line.csi_code,
                 "description": line.description,
                 "category": best_item.get("category") or "Bid schedule",
-                "unit": (line.unit or best_item.get("unit") or "UNIT").upper(),
+                "unit": str(line.unit or best_item.get("unit") or "UNIT").strip() or "UNIT",
                 "quantity": round(total_qty, 4),
                 "rate": rate,
                 "source_document_id": best_item.get("source_document_id"),
@@ -326,7 +443,7 @@ def build_eoq_items_from_template(
                 "bid_match_method": "unmapped",
                 "calculation_method": (
                     (item.get("calculation_method") or "Takeoff")
-                    + " — not matched to active bid template"
+                    + f" — not matched to {template_label}"
                 ),
             }
         )
@@ -427,13 +544,13 @@ def _description_overlap_score(desc_tokens: set[str], line_tokens: set[str]) -> 
 
 
 def _match_line(
-    lines: list[BidTemplateLine],
+    lines: list[BidTemplateLine | MasterBidTemplateLine],
     *,
     description: str,
     unit: str,
     csi_code: str | None,
     item_code: str | None,
-) -> tuple[BidTemplateLine | None, float, str]:
+) -> tuple[BidTemplateLine | MasterBidTemplateLine | None, float, str]:
     desc = description.lower().strip()
     unit_n = normalize_unit(unit)
     desc_tokens = _token_set(desc)
@@ -465,7 +582,7 @@ def _match_line(
             return line, 82.0, "fuzzy_description"
 
     # Token overlap (e.g. "Temporary Traffic Control Signs" ↔ "TEMP TRAFFIC CONTROL SIGN")
-    best: BidTemplateLine | None = None
+    best: BidTemplateLine | MasterBidTemplateLine | None = None
     best_score = 0.0
     for line in lines:
         if not _units_compatible(line.unit, unit_n):
@@ -517,53 +634,136 @@ def _parse_csv(path: Path) -> list[dict[str, Any]]:
     return rows
 
 
-def _parse_excel(path: Path) -> list[dict[str, Any]]:
-    wb = load_workbook(path, data_only=True, read_only=True)
-    ws = wb.active
-    headers = [str(c.value).strip().lower() if c.value is not None else "" for c in next(ws.iter_rows(min_row=1, max_row=1))]
-    idx = {h: i for i, h in enumerate(headers)}
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return f"{value:.10f}".rstrip("0").rstrip(".")
+    return str(value).strip()
 
-    def find(*names: str) -> int | None:
-        for name in names:
-            for h, i in idx.items():
-                if name == h or name in h:
-                    return i
-        return None
 
-    line_i = find("line", "item no", "item#", "no.", "#")
-    code_i = find("csi", "item code", "code", "bid item")
-    desc_i = find("description", "desc", "item", "particular")
-    unit_i = find("unit", "uom")
-    rate_i = find("rate", "unit price", "price")
-    if desc_i is None:
-        desc_i = 0
+def _parse_excel_sheet(ws: Any) -> list[dict[str, Any]]:
+    raw_rows = [list(row) for row in ws.iter_rows(values_only=True)]
+    if not raw_rows:
+        return []
 
-    rows: list[dict[str, Any]] = []
-    for n, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=1):
-        values = list(row)
-        if not values or desc_i >= len(values) or not values[desc_i]:
+    header_idx: int | None = None
+    line_i: int | None = None
+    code_i: int | None = None
+    desc_i: int | None = None
+    unit_i: int | None = None
+    rate_i: int | None = None
+
+    for idx, row in enumerate(raw_rows[:80]):
+        header = [_cell_text(c).lower() for c in row]
+        if not any(header):
             continue
-        code = str(values[code_i]).strip() if code_i is not None and code_i < len(values) and values[code_i] else None
-        unit = str(values[unit_i]).strip() if unit_i is not None and unit_i < len(values) and values[unit_i] else "unit"
+        header_blob = " | ".join(header)
+        code_col = _find_col(
+            header,
+            ["bid item number", "bid item", "std bid no", "item code", "code", "csi"],
+        )
+        desc_col = _find_col(header, ["item description", "description", "desc", "particular", "item"])
+        unit_col = _find_col(header, ["unit", "uom"])
+        looks_like_bid_header = any(
+            token in header_blob
+            for token in ("bid item", "item number", "item no", "std bid", "item code", "csi", "description", "unit")
+        )
+        if desc_col is None or unit_col is None or not looks_like_bid_header:
+            continue
+        # Most valid bid templates provide code+unit; if code is absent we still parse by description+unit.
+        header_idx = idx
+        line_i = _find_col(header, ["line", "item no", "item#", "no.", "#"])
+        code_i = code_col
+        desc_i = desc_col
+        unit_i = unit_col
+        rate_i = _find_col(header, ["rate", "unit price", "price"])
+        break
+
+    if header_idx is None or desc_i is None:
+        return []
+
+    out: list[dict[str, Any]] = []
+    for n, row in enumerate(raw_rows[header_idx + 1 :], start=1):
+        values = list(row)
+        if not values:
+            continue
+        desc = _cell_text(values[desc_i]) if desc_i < len(values) else ""
+        if not desc:
+            continue
+        desc_low = desc.lower()
+        if desc_low in {"item description", "description", "bid item number", "bid item"}:
+            continue
+        code = _cell_text(values[code_i]) if code_i is not None and code_i < len(values) else ""
+        unit = _cell_text(values[unit_i]) if unit_i is not None and unit_i < len(values) else ""
         rate = None
         if rate_i is not None and rate_i < len(values) and values[rate_i] is not None:
             try:
                 rate = float(str(values[rate_i]).replace(",", ""))
             except ValueError:
                 rate = None
-        line_no = str(values[line_i]).strip() if line_i is not None and line_i < len(values) and values[line_i] else str(n)
-        rows.append(
+        line_no = _cell_text(values[line_i]) if line_i is not None and line_i < len(values) else ""
+        if not line_no:
+            line_no = code or str(n)
+        out.append(
             {
                 "line_number": line_no,
                 "csi_code": code if code and looks_like_csi(code) else None,
-                "item_code": code,
-                "description": str(values[desc_i]).strip(),
-                "unit": unit,
+                "item_code": code or None,
+                "description": desc,
+                "unit": unit or "unit",
                 "default_rate": rate,
             }
         )
-    wb.close()
-    return rows
+    return out
+
+
+def _dedupe_bid_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        desc = str(row.get("description") or "").strip()
+        if not desc:
+            continue
+        code_key = re.sub(r"\s+", "", str(row.get("item_code") or "").strip().lower())
+        desc_key = re.sub(r"\s+", " ", desc.lower())
+        unit_key = normalize_unit(str(row.get("unit") or "unit"))
+        key = code_key or f"{desc_key}|{unit_key}"
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+    return deduped
+
+
+def _parse_excel(path: Path, *, preferred_sheet: str | None = None) -> list[dict[str, Any]]:
+    wb = load_workbook(path, data_only=True, read_only=True)
+    try:
+        preferred = (preferred_sheet or "").strip().lower()
+        names = list(wb.sheetnames)
+        ordered_names: list[str] = []
+        if preferred:
+            for name in names:
+                if name.strip().lower() == preferred:
+                    ordered_names.append(name)
+                    break
+        ordered_names.extend([name for name in names if name not in ordered_names])
+
+        parsed_rows: list[dict[str, Any]] = []
+        for name in ordered_names:
+            low_name = name.lower()
+            if "instruction" in low_name:
+                continue
+            sheet_rows = _parse_excel_sheet(wb[name])
+            if not sheet_rows:
+                continue
+            parsed_rows.extend(sheet_rows)
+            # For configured master sheet, don't blend from other sheets once parsed.
+            if preferred and name.strip().lower() == preferred:
+                break
+        return _dedupe_bid_rows(parsed_rows)
+    finally:
+        wb.close()
 
 
 def _parse_pdf(path: Path) -> list[dict[str, Any]]:
@@ -671,8 +871,17 @@ def _row_from_dict(r: dict[str, Any], fallback_line: int) -> dict[str, Any] | No
 
 
 def _find_col(header: list[str], names: list[str]) -> int | None:
-    for i, h in enumerate(header):
-        for n in names:
-            if n == h or n in h:
+    normalized = [str(h or "").strip().lower() for h in header]
+    # First pass: exact match in name priority order.
+    for name in names:
+        target = name.lower().strip()
+        for i, col in enumerate(normalized):
+            if col == target:
+                return i
+    # Second pass: substring match in name priority order.
+    for name in names:
+        target = name.lower().strip()
+        for i, col in enumerate(normalized):
+            if target and target in col:
                 return i
     return None

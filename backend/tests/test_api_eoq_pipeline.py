@@ -200,3 +200,70 @@ def test_generate_eoq_api_document_scope_only_uses_selected_documents():
         assert not any("Sanitary Sewer Manhole" in desc for desc in descriptions)
     finally:
         client.close()
+
+
+def test_generate_eoq_api_maps_to_autovad_master_template(monkeypatch):
+    from app.services.bid_service import MasterBidTemplateLine
+
+    def fake_master_template_lines(*, force_reload: bool = False):
+        _ = force_reload
+        return (
+            "AutoVAD master template (Bid Item List 2026.xlsx)",
+            [
+                MasterBidTemplateLine(
+                    id=1,
+                    line_number="4",
+                    csi_code=None,
+                    item_code="634.0120",
+                    description="Traffic Control, Miscellaneous",
+                    unit="ls",
+                    default_rate=None,
+                    sort_order=1,
+                ),
+                MasterBidTemplateLine(
+                    id=2,
+                    line_number="1",
+                    csi_code=None,
+                    item_code="9.0010",
+                    description="Mobilization",
+                    unit="ls",
+                    default_rate=None,
+                    sort_order=2,
+                ),
+            ],
+            None,
+        )
+
+    monkeypatch.setattr(
+        "app.services.eoq_service.get_autovad_master_template_lines",
+        fake_master_template_lines,
+    )
+
+    client, project_id, _doc_ids = _build_context(
+        [
+            [
+                {
+                    "description": "Temporary traffic control miscellaneous work",
+                    "unit": "LS",
+                    "quantity": 1,
+                    "source_reference": "Sheet F2",
+                    "confidence": 92,
+                }
+            ]
+        ]
+    )
+    try:
+        res = client.post(f"/api/eoq/projects/{project_id}/generate", json={})
+        assert res.status_code == 200, res.text
+        body = res.json()
+        row = next(
+            r
+            for r in body["items"]
+            if str(r.get("description") or "").lower() == "traffic control, miscellaneous"
+        )
+        assert row["item_code"] == "634.0120"
+        assert str(row["unit"]).upper() == "LS"
+        assert row["bid_template_line_id"] == 1
+        assert "autovad master template" in str(body.get("notes") or "").lower()
+    finally:
+        client.close()

@@ -19,15 +19,6 @@ import {
   type CadCapabilities,
   type CadModel,
 } from '@/api/cad'
-import {
-  activateBidTemplate,
-  deleteBidTemplate,
-  listBidTemplates,
-  mapEoqToBid,
-  uploadBidTemplate,
-  type BidMapResult,
-  type BidTemplate,
-} from '@/api/bid'
 import type { AnalysisResult, EOQ, EOQItem, ChatMessage } from '@/types'
 import {
   eoqItemStatusColor,
@@ -46,7 +37,9 @@ const route = useRoute()
 const router = useRouter()
 const store = useProjectsStore()
 const projectId = computed(() => Number(route.params.id))
-const tab = ref((route.query.tab as string) || 'documents')
+const _tabs = new Set(['documents', 'cad', 'eoq', 'cost', 'compare', 'reports', 'team', 'chat'])
+const _requestedTab = String(route.query.tab || '')
+const tab = ref(_tabs.has(_requestedTab) ? _requestedTab : 'documents')
 
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
@@ -78,7 +71,7 @@ const pdfAnalyzeStages = [
   { at: 8, label: 'Opening plan file…' },
   { at: 22, label: 'Extracting text & tables…' },
   { at: 38, label: 'Vision-scanning every plan sheet…' },
-  { at: 52, label: 'Matching bid template lines…' },
+  { at: 52, label: 'Matching pay-item lines…' },
   { at: 68, label: 'Running AI quantity takeoff…' },
   { at: 84, label: 'Scoring confidence…' },
   { at: 94, label: 'Finalizing results…' },
@@ -157,15 +150,6 @@ const cadSetupMessage = ref<string | null>(null)
 const intelStatus = ref<IntelligenceStatus | null>(null)
 const cadCaps = ref<CadCapabilities | null>(null)
 
-const bidTemplates = ref<BidTemplate[]>([])
-const bidFile = ref<File[] | File | null>(null)
-const bidLoading = ref(false)
-const bidUploading = ref(false)
-const bidError = ref<string | null>(null)
-const bidUploadProgress = ref(0)
-const bidUploadLabel = ref('')
-const bidMapResult = ref<BidMapResult | null>(null)
-
 const statuses = [
   { title: 'Draft', value: 'draft' },
   { title: 'Active', value: 'active' },
@@ -195,7 +179,6 @@ async function load() {
     loadMembers(),
     loadCad(),
     loadIntelligence(),
-    loadBidTemplates(),
   ])
 }
 async function loadCad() {
@@ -209,87 +192,6 @@ async function loadIntelligence() {
   } catch {
     intelStatus.value = null
     cadCaps.value = null
-  }
-}
-async function loadBidTemplates() {
-  bidTemplates.value = await listBidTemplates(projectId.value)
-}
-
-async function uploadBidFile() {
-  const file = Array.isArray(bidFile.value) ? bidFile.value[0] : bidFile.value
-  if (!file) return
-  bidLoading.value = true
-  bidUploading.value = true
-  bidError.value = null
-  bidUploadProgress.value = 0
-  bidUploadLabel.value = `Uploading ${file.name}…`
-  try {
-    await uploadBidTemplate(projectId.value, file, undefined, (percent) => {
-      bidUploadProgress.value = percent
-      bidUploadLabel.value = percent >= 100 ? 'Finishing upload…' : `Uploading ${file.name}…`
-    })
-    bidFile.value = null
-    bidUploadProgress.value = 100
-    bidUploadLabel.value = 'Upload complete'
-    await loadBidTemplates()
-  } catch (err) {
-    bidError.value = extractDetail(err, 'Bid template upload failed')
-  } finally {
-    bidLoading.value = false
-    bidUploading.value = false
-  }
-}
-
-async function activateBid(id: number) {
-  bidLoading.value = true
-  try {
-    await activateBidTemplate(projectId.value, id)
-    await loadBidTemplates()
-  } catch (err) {
-    bidError.value = extractDetail(err, 'Could not activate template')
-  } finally {
-    bidLoading.value = false
-  }
-}
-
-async function removeBid(id: number) {
-  bidLoading.value = true
-  try {
-    await deleteBidTemplate(projectId.value, id)
-    await loadBidTemplates()
-  } catch (err) {
-    bidError.value = extractDetail(err, 'Could not delete template')
-  } finally {
-    bidLoading.value = false
-  }
-}
-
-async function runBidMap() {
-  if (!activeEoq.value) {
-    bidError.value = 'Generate an Estimate Of Quantities first, then re-map it to the active bid template.'
-    return
-  }
-  if (!bidTemplates.value.length) {
-    bidError.value = 'Upload and activate a bid template first.'
-    return
-  }
-  bidLoading.value = true
-  bidError.value = null
-  try {
-    bidMapResult.value = await mapEoqToBid(projectId.value, activeEoq.value.id)
-    await loadEoqs()
-    tab.value = 'eoq'
-    if (bidMapResult.value && bidMapResult.value.matched === 0) {
-      bidError.value =
-        `Re-map finished but 0 / ${bidMapResult.value.total} items matched the active bid list. ` +
-        'Check Bid templates → template is Active and shows the expected line count. ' +
-        'Descriptions/units in the bid file must be similar to plan takeoff wording. ' +
-        'Best fix: keep template Active → Analyze PDF again → Generate Estimate Of Quantities (do not rely on Re-map alone).'
-    }
-  } catch (err) {
-    bidError.value = extractDetail(err, 'Re-map to template failed')
-  } finally {
-    bidLoading.value = false
   }
 }
 
@@ -768,7 +670,7 @@ async function sendChat(question?: string) {
   chatInput.value = ''
   try {
     await askChat(projectId.value, q)
-    await Promise.all([loadChat(), loadAnalyses(), loadEoqs(), loadCad(), loadCost(), loadBidTemplates()])
+    await Promise.all([loadChat(), loadAnalyses(), loadEoqs(), loadCad(), loadCost()])
     await store.fetchProject(projectId.value)
   } catch (err) {
     chatError.value = extractDetail(err, 'Chat failed')
@@ -947,7 +849,6 @@ const cadDocuments = computed(() =>
         <v-tab value="documents">Documents</v-tab>
         <v-tab value="cad">CAD / Civil 3D</v-tab>
         <v-tab value="eoq">Estimate Of Quantities</v-tab>
-        <v-tab value="bid">Bid templates</v-tab>
         <v-tab value="cost">Cost</v-tab>
         <v-tab value="compare">Compare</v-tab>
         <v-tab value="reports">Reports</v-tab>
@@ -1206,16 +1107,6 @@ const cadDocuments = computed(() =>
                 >
                   Generate selected
                 </v-btn>
-                <v-btn
-                  color="secondary"
-                  variant="tonal"
-                  :disabled="!activeEoq || !bidTemplates.length"
-                  :loading="bidLoading"
-                  title="Re-match an existing Estimate Of Quantities to the active bid template without regenerating"
-                  @click="runBidMap"
-                >
-                  Re-map to template
-                </v-btn>
                 <v-btn color="primary" :disabled="!activeEoq" @click="exportExcel">Excel</v-btn>
                 <v-btn variant="tonal" :disabled="!activeEoq" @click="exportCsv">CSV</v-btn>
                 <v-btn variant="tonal" :disabled="!activeEoq" @click="approval('submit')">Submit review</v-btn>
@@ -1250,9 +1141,6 @@ const cadDocuments = computed(() =>
                 <v-chip v-if="eoqUnmappedCount" size="small" color="warning" variant="tonal">
                   {{ eoqUnmappedCount }} unmapped
                 </v-chip>
-                <v-chip v-if="bidMapResult" size="small" color="success" variant="tonal">
-                  Bid mapped {{ bidMapResult.matched }}/{{ bidMapResult.total }}
-                </v-chip>
                 <v-btn-toggle v-model="eoqFilter" mandatory density="compact" class="ms-auto" variant="outlined" divided>
                   <v-btn value="all" size="small">All</v-btn>
                   <v-btn value="review" size="small">Engineer Review</v-btn>
@@ -1269,7 +1157,6 @@ const cadDocuments = computed(() =>
                     <th>Unit</th>
                     <th>Approx. Quantity</th>
                     <th>AI Confidence</th>
-                    <th>Bid match</th>
                     <th>Source</th>
                     <th>Status</th>
                     <th>Review</th>
@@ -1278,7 +1165,7 @@ const cadDocuments = computed(() =>
                 <tbody>
                   <template v-for="section in groupedEoqSections" :key="section.group">
                     <tr class="eoq-section-row">
-                      <td colspan="10">
+                      <td colspan="9">
                         <span class="eoq-section-title">{{ section.group }}</span>
                         <span class="eoq-section-count">{{ section.items.length }} item{{ section.items.length === 1 ? '' : 's' }}</span>
                       </td>
@@ -1306,13 +1193,6 @@ const cadDocuments = computed(() =>
                       <td class="text-uppercase text-center">{{ formatUnit(item.unit) }}</td>
                       <td class="text-right">{{ formatQty(item.quantity) }}</td>
                       <td>{{ item.confidence != null ? `${Number(item.confidence).toFixed(2)}%` : '—' }}</td>
-                      <td class="text-caption">
-                        {{
-                          item.bid_match_confidence != null
-                            ? `${Number(item.bid_match_confidence).toFixed(0)}%`
-                            : '—'
-                        }}
-                      </td>
                       <td>
                         <button
                           v-if="item.source_document_id"
@@ -1359,96 +1239,11 @@ const cadDocuments = computed(() =>
                     </tr>
                   </template>
                   <tr v-if="!groupedEoqSections.length">
-                    <td colspan="10" class="text-center muted py-6">No items in this filter.</td>
+                    <td colspan="9" class="text-center muted py-6">No items in this filter.</td>
                   </tr>
                 </tbody>
               </v-table>
             </template>
-          </div>
-        </v-tabs-window-item>
-
-        <v-tabs-window-item value="bid">
-          <div class="surface-panel pa-5">
-            <h2 class="brand-font text-h6 mb-1">Bid templates</h2>
-            <p class="muted mb-4">
-              Upload your agency bid list (PDF / Excel / CSV). AutoVAD reads it, then when you analyze design plans
-              and <strong>Generate Estimate Of Quantities</strong>, only bid items evidenced in those plans are included (matched by
-              code / description / unit). Without a template, AutoVAD uses its default CSI takeoff.
-              <strong> Re-map to template</strong> only re-matches an existing Estimate Of Quantities — prefer Generate after Analyze.
-            </p>
-            <v-alert v-if="bidError" type="error" variant="tonal" class="mb-3">{{ bidError }}</v-alert>
-            <v-file-input
-              v-model="bidFile"
-              label="Bid template (PDF / Excel / CSV)"
-              accept=".pdf,.xlsx,.xls,.csv"
-              prepend-icon=""
-              prepend-inner-icon="mdi-file-table-outline"
-              show-size
-              class="mb-2"
-            />
-            <p class="text-caption muted mb-3">PDF / Excel / CSV. No file size limit.</p>
-            <div v-if="bidUploading" class="upload-progress mb-3">
-              <div class="d-flex justify-space-between align-center text-caption mb-1">
-                <span class="upload-progress__label">{{ bidUploadLabel }}</span>
-                <span class="upload-progress__pct font-weight-medium">{{ bidUploadProgress }}%</span>
-              </div>
-              <v-progress-linear
-                :model-value="bidUploadProgress"
-                color="primary"
-                height="8"
-                rounded
-              />
-            </div>
-            <div class="d-flex flex-wrap ga-2 mb-4">
-              <v-btn color="primary" :disabled="bidLoading" @click="uploadBidFile">
-                {{ bidUploading ? `Uploading ${bidUploadProgress}%` : 'Upload bid list' }}
-              </v-btn>
-              <v-btn variant="tonal" :disabled="!activeEoq || !bidTemplates.length" :loading="bidLoading" @click="runBidMap">
-                Re-map active Estimate Of Quantities
-              </v-btn>
-            </div>
-
-            <div v-if="!bidTemplates.length" class="muted text-center py-8">No bid templates yet.</div>
-            <div v-for="t in bidTemplates" :key="t.id" class="doc-row pa-3 mb-3">
-              <div class="d-flex flex-wrap justify-space-between ga-2 mb-2">
-                <div>
-                  <div class="font-weight-medium">{{ t.name }}</div>
-                  <div class="text-caption muted">{{ t.source_filename }} · {{ t.lines.length }} lines</div>
-                </div>
-                <div class="d-flex ga-2 align-center">
-                  <v-chip size="small" :color="t.is_active ? 'success' : 'default'" variant="tonal">
-                    {{ t.is_active ? 'Active' : 'Inactive' }}
-                  </v-chip>
-                  <v-btn size="small" variant="tonal" :disabled="t.is_active" @click="activateBid(t.id)">Activate</v-btn>
-                  <v-btn size="small" variant="text" color="error" @click="removeBid(t.id)">Delete</v-btn>
-                </div>
-              </div>
-              <v-table v-if="t.lines.length" density="compact">
-                <thead>
-                  <tr><th>Line</th><th>CSI</th><th>Code</th><th>Description</th><th>Unit</th><th>Rate</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="ln in t.lines.slice(0, 12)" :key="ln.id">
-                    <td>{{ ln.line_number }}</td>
-                    <td>{{ ln.csi_code || '—' }}</td>
-                    <td>{{ ln.item_code || '—' }}</td>
-                    <td>{{ ln.description }}</td>
-                    <td>{{ formatUnit(ln.unit) }}</td>
-                    <td>{{ ln.default_rate ?? '—' }}</td>
-                  </tr>
-                </tbody>
-              </v-table>
-              <div v-if="t.lines.length > 12" class="text-caption muted mt-1">Showing first 12 of {{ t.lines.length }} lines</div>
-            </div>
-
-            <div v-if="bidMapResult" class="analysis-box pa-3 mt-4">
-              Mapped {{ bidMapResult.matched }} / {{ bidMapResult.total }} Estimate Of Quantities items to “{{ bidMapResult.template_name }}”.
-              Unmatched: {{ bidMapResult.unmatched }}.
-              <span v-if="bidMapResult.matched === 0" class="d-block mt-2 text-caption">
-                0 matches usually means the bid list wording/units differ from plan takeoff, or the wrong bid file is Active.
-                Prefer: Activate bid list → Analyze → Generate (Re-map only retries matching on the current Estimate Of Quantities).
-              </span>
-            </div>
           </div>
         </v-tabs-window-item>
 
@@ -1552,7 +1347,7 @@ const cadDocuments = computed(() =>
           <div class="surface-panel pa-5">
             <h2 class="brand-font text-h6 mb-1">AI Engineering Chat</h2>
             <p class="muted text-body-2 mb-3">
-              Ask questions or give commands — I can analyze files, generate Estimate Of Quantities, export Excel, process CAD, map bid templates, and estimate cost.
+              Ask questions or give commands — I can analyze files, generate Estimate Of Quantities, export Excel, process CAD, and estimate cost.
             </p>
             <div class="d-flex flex-wrap ga-2 mb-3">
               <v-chip v-for="q in suggestedQuestions" :key="q" size="small" variant="outlined" @click="sendChat(q)">{{ q }}</v-chip>

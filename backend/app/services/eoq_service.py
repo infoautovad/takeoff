@@ -19,7 +19,7 @@ from app.models.analysis import DocumentAnalysis
 from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
 from app.models.cad import CadModel
 from app.models.project import Project
-from app.services.bid_service import build_eoq_items_from_template, get_active_template
+from app.services.bid_service import build_eoq_items_from_template, get_autovad_master_template_lines
 from app.services.eoq_groups import assign_group_category, group_items, looks_like_mobilization
 from app.services.csi_mapper import enrich_quantity_item, format_export_unit
 from app.services.item_combine import combine_similar_pay_items
@@ -155,9 +155,6 @@ def generate_eoq_for_project(
         analyses = [a for a in analyses if a.document_id in scope_ids]
         cad_models = [c for c in cad_models if c.document_id in scope_ids]
 
-    active = get_active_template(db, project.id)
-    has_template = bool(active and active.lines)
-
     if not analyses and not cad_models:
         if scope_ids:
             raise ValueError(
@@ -209,39 +206,34 @@ def generate_eoq_for_project(
             else "No quantities found from design plans. Upload PDF/DWG and run Analyze / Process CAD first."
         )
 
-    if has_template:
-        # Only bid items evidenced in the plans, aligned to the active agency template.
-        items_list = build_eoq_items_from_template(extracted, list(active.lines))
-        matched = sum(
-            1
-            for i in items_list
-            if i.get("bid_template_line_id") and float(i.get("bid_match_confidence") or 0) > 0
+    template_name, master_lines, template_error = get_autovad_master_template_lines()
+    if master_lines:
+        items_list = build_eoq_items_from_template(
+            extracted,
+            list(master_lines),
+            template_label=template_name,
         )
+        matched = sum(1 for i in items_list if i.get("bid_template_line_id"))
         unmapped = sum(1 for i in items_list if i.get("bid_match_method") == "unmapped")
         notes_extra = (
-            f" Matched plan takeoff to bid template '{active.name}' "
-            f"({matched} template item(s); {unmapped} unmapped takeoff item(s)). "
-            "Unused bid-list lines were omitted."
+            f" Matched extracted quantities to {template_name} "
+            f"({matched} matched item(s); {unmapped} unmatched takeoff item(s))."
         )
-        if not items_list:
-            raise ValueError(
-                "Could not match any plan quantities to the active bid template. "
-                "Re-analyze plans after uploading the template, or check descriptions/units."
-            )
     else:
-        # AutoVAD default: CSI-enriched takeoff EOQ
+        # Safety fallback when master workbook is missing/unreadable.
         items_list = [enrich_quantity_item(dict(item)) for item in extracted]
         notes_extra = (
-            " Generated with AutoVAD default CSI schedule (no bid template uploaded)."
-            " Upload a bid list so Generate Estimate Of Quantities maps only the bid items needed for this project."
+            " Generated with AutoVAD fallback (master template unavailable)."
         )
+    if template_error:
+        notes_extra += f" Master template note: {template_error}"
 
     if validation_notes:
         notes_extra += " Deterministic validation: " + " ".join(validation_notes)
 
     items_list = ensure_mobilization_item(
         items_list,
-        template_lines=list(active.lines) if has_template else None,
+        template_lines=list(master_lines) if master_lines else None,
     )
 
     from app.models.document import Document
@@ -658,7 +650,7 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
     meta.append(
         [
             "Template rule",
-            "User bid template when active; otherwise AutoVAD default CSI schedule",
+            "AutoVAD standard template is always used for project EOQ generation",
         ]
     )
     meta.append(

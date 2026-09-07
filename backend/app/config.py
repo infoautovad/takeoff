@@ -84,6 +84,10 @@ class Settings(BaseSettings):
     cad_store_polylines_limit: int = 5000
     cad_store_circles_limit: int = 2000
     cad_store_hatches_limit: int = 2000
+    # Optional path override for AutoVAD master bid template workbook.
+    # When empty, backend looks for "Bid Item List 2026.xlsx" at repo root.
+    autovad_master_bid_template_path: str | None = None
+    autovad_master_bid_template_sheet: str = "Bid Items"
 
     @property
     def cors_origin_list(self) -> list[str]:
