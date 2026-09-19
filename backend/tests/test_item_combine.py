@@ -128,6 +128,18 @@ def test_mobilization_ls_stays_one():
     assert float(out[0]["quantity"]) == 1
 
 
+def test_alternate_a_not_merged_with_base_or_alternate_b():
+    items = [
+        {"description": "8-Inch Water Main", "unit": "LF", "quantity": 100, "category": "Watermain"},
+        {"description": "8-Inch Water Main", "unit": "LF", "quantity": 40, "category": "Alternate A"},
+        {"description": "8-Inch Water Main", "unit": "LF", "quantity": 25, "category": "Alternate B"},
+    ]
+    assert not pay_items_similar(items[0], items[1])
+    assert not pay_items_similar(items[1], items[2])
+    out = combine_similar_pay_items(items)
+    assert len(out) == 3
+
+
 def test_concrete_sidewalk_not_merged_with_curb():
     assert not pay_items_similar(
         {"description": "Concrete Sidewalk", "unit": "SQFT", "quantity": 100},

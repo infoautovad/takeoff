@@ -147,6 +147,63 @@ def test_eoq_group_sections():
     assert names.index("Removals") < names.index("Watermain")
 
 
+def test_alternate_sections_stay_separate_from_base_groups():
+    from app.services.eoq_groups import detect_alternate_section, group_items, resolve_eoq_group
+
+    assert detect_alternate_section("Alternate A Items") == "Alternate A"
+    assert detect_alternate_section("ALT. B — 8-Inch Water Main") == "Alternate B"
+    assert detect_alternate_section("Option 1", "Curb and Gutter") == "Alternate 1"
+    assert detect_alternate_section("alternative backfill") is None
+    assert resolve_eoq_group(description="8-Inch Water Main", category="Alternate A") == "Alternate A"
+    assert resolve_eoq_group(description="Alternate B Remove Curb") == "Alternate B"
+    assert resolve_eoq_group(description="8-Inch Water Main") == "Watermain"
+
+    rows = [
+        {"description": "8-Inch Water Main", "category": "Watermain"},
+        {"description": "8-Inch Water Main", "category": "Alternate A"},
+        {"description": "Remove Curb", "category": "Alternate B"},
+        {"description": "Mobilization", "category": "Alternate A"},
+    ]
+    sections = group_items(
+        rows,
+        get_description=lambda i: i["description"],
+        get_category=lambda i: i.get("category"),
+    )
+    by_name = {name: [r["description"] for r in group] for name, group in sections}
+    assert "Alternate A" in by_name
+    assert "Alternate B" in by_name
+    assert by_name["Alternate A"] == ["8-Inch Water Main", "Mobilization"]
+    assert by_name["Alternate B"] == ["Remove Curb"]
+    assert by_name["Watermain"] == ["8-Inch Water Main"]
+    names = [name for name, _rows in sections]
+    assert names.index("Watermain") < names.index("Alternate A")
+    assert names.index("Alternate A") < names.index("Alternate B")
+
+
+def test_alternate_prefix_removed_from_item_description():
+    from app.services.eoq_groups import assign_group_category, strip_alternate_label
+
+    assert (
+        strip_alternate_label(
+            "Alternate A - Geotextile Fabric for Subgrade Stabilization, longitudinal treatment extent"
+        )
+        == "Geotextile Fabric for Subgrade Stabilization, longitudinal treatment extent"
+    )
+    assert strip_alternate_label("ALT. B — 12 Inch Cement Stabilized Subbase") == (
+        "12 Inch Cement Stabilized Subbase"
+    )
+    assert strip_alternate_label("8-Inch Water Main") == "8-Inch Water Main"
+
+    grouped = assign_group_category(
+        {
+            "description": "Alternate A - Scarify and Recompact Subgrade, longitudinal treatment extent",
+            "category": "Alternate A",
+        }
+    )
+    assert grouped["category"] == "Alternate A"
+    assert grouped["description"] == "Scarify and Recompact Subgrade, longitudinal treatment extent"
+
+
 def test_standard_bid_number_displays_special_for_unmatched():
     from types import SimpleNamespace
 

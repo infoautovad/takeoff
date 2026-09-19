@@ -18,7 +18,7 @@ from app.config import get_settings
 from app.models.bid import BidTemplate, BidTemplateLine
 from app.models.eoq import EOQ
 from app.services.csi_mapper import enrich_quantity_item, looks_like_csi, normalize_csi_code, normalize_unit
-from app.services.eoq_groups import resolve_eoq_group
+from app.services.eoq_groups import detect_alternate_section, resolve_eoq_group
 
 
 MASTER_TEMPLATE_FILENAME = "Bid Item List 2026.xlsx"
@@ -381,7 +381,7 @@ def build_eoq_items_from_template(
     sorted_lines = sorted(lines, key=lambda line: (line.sort_order, line.id))
     enriched_extracted = [enrich_quantity_item(dict(item)) for item in extracted]
 
-    line_hits: dict[int, list[tuple[dict[str, Any], float, str]]] = {line.id: [] for line in sorted_lines}
+    line_hits: dict[tuple[int, str], list[tuple[dict[str, Any], float, str]]] = {}
     unmatched: list[dict[str, Any]] = []
 
     for item in enriched_extracted:
@@ -393,48 +393,55 @@ def build_eoq_items_from_template(
             item_code=item.get("item_code"),
         )
         if hit and score > 0:
-            line_hits[hit.id].append((item, score, method))
+            alt_key = detect_alternate_section(
+                item.get("category"),
+                item.get("description"),
+                item.get("source_reference"),
+            ) or ""
+            line_hits.setdefault((hit.id, alt_key), []).append((item, score, method))
         else:
             unmatched.append(item)
 
     out: list[dict[str, Any]] = []
     for line in sorted_lines:
-        hits = line_hits.get(line.id) or []
-        if not hits:
-            continue  # skip unused bid items — not needed for this project
-        total_qty = 0.0
-        for payload, _score, _method in hits:
-            try:
-                total_qty += float(payload.get("quantity") or 0)
-            except (TypeError, ValueError):
-                pass
-        if total_qty <= 0:
-            continue
-        best_item, best_score, best_method = max(hits, key=lambda row: row[1])
-        rate = line.default_rate if line.default_rate is not None else best_item.get("rate")
-        out.append(
-            {
-                "item_code": line.item_code,
-                "csi_code": line.csi_code,
-                "description": line.description,
-                "category": best_item.get("category") or "Bid schedule",
-                "unit": str(line.unit or best_item.get("unit") or "UNIT").strip() or "UNIT",
-                "quantity": round(total_qty, 4),
-                "rate": rate,
-                "source_document_id": best_item.get("source_document_id"),
-                "source_page": best_item.get("source_page"),
-                "source_reference": best_item.get("source_reference")
-                or f"Bid line {line.line_number}",
-                "calculation_method": (
-                    best_item.get("calculation_method")
-                    or f"Matched to bid template line {line.line_number} ({best_method})"
-                ),
-                "confidence": best_item.get("confidence"),
-                "bid_template_line_id": line.id,
-                "bid_match_confidence": best_score,
-                "bid_match_method": best_method,
-            }
-        )
+        alt_keys = sorted({key for lid, key in line_hits if lid == line.id})
+        for alt_key in alt_keys:
+            hits = line_hits.get((line.id, alt_key)) or []
+            if not hits:
+                continue  # skip unused bid items — not needed for this project
+            total_qty = 0.0
+            for payload, _score, _method in hits:
+                try:
+                    total_qty += float(payload.get("quantity") or 0)
+                except (TypeError, ValueError):
+                    pass
+            if total_qty <= 0:
+                continue
+            best_item, best_score, best_method = max(hits, key=lambda row: row[1])
+            rate = line.default_rate if line.default_rate is not None else best_item.get("rate")
+            out.append(
+                {
+                    "item_code": line.item_code,
+                    "csi_code": line.csi_code,
+                    "description": line.description,
+                    "category": alt_key or best_item.get("category") or "Bid schedule",
+                    "unit": str(line.unit or best_item.get("unit") or "UNIT").strip() or "UNIT",
+                    "quantity": round(total_qty, 4),
+                    "rate": rate,
+                    "source_document_id": best_item.get("source_document_id"),
+                    "source_page": best_item.get("source_page"),
+                    "source_reference": best_item.get("source_reference")
+                    or f"Bid line {line.line_number}",
+                    "calculation_method": (
+                        best_item.get("calculation_method")
+                        or f"Matched to bid template line {line.line_number} ({best_method})"
+                    ),
+                    "confidence": best_item.get("confidence"),
+                    "bid_template_line_id": line.id,
+                    "bid_match_confidence": best_score,
+                    "bid_match_method": best_method,
+                }
+            )
 
     for item in unmatched:
         out.append(

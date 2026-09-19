@@ -47,9 +47,9 @@ def _model_name() -> str:
 
 
 def _supports_custom_temperature(model: str) -> bool:
-    """Some GPT-5 family models only allow the default temperature."""
+    """Some GPT-6 family models only allow the default temperature."""
     low = model.lower()
-    if "gpt-5" in low or "terra" in low or "o1" in low or "o3" in low or "o4" in low:
+    if "gpt-6" in low or "astra" in low or "o1" in low or "o3" in low or "o4" in low:
         return False
     return True
 

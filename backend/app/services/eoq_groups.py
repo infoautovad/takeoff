@@ -37,6 +37,22 @@ EOQ_GROUP_ORDER: list[str] = [
     "Special",
 ]
 
+_ALTERNATE_RE = re.compile(
+    r"\b(?:additive|deductive|bid)?\s*"
+    r"(?:alternate\b|option\b|alt\.?)\s*"
+    r"(?:no\.?|number|#)?\s*[-:]?\s*"
+    r"['\"]?([A-Za-z]|[0-9]{1,2})['\"]?\b",
+    re.I,
+)
+_ALTERNATE_PREFIX_RE = re.compile(
+    r"^(?:additive|deductive|bid)?\s*"
+    r"(?:alternate\b|option\b|alt\.?)\s*"
+    r"(?:no\.?|number|#)?\s*[-:]?\s*"
+    r"['\"]?([A-Za-z]|[0-9]{1,2})['\"]?\s*"
+    r"(?:[-–—:]+|\s+-\s+)\s*",
+    re.I,
+)
+
 # keyword (lower) → group. First match wins — order matters (specific before generic).
 _GROUP_RULES: list[tuple[list[str], str]] = [
     # Removals / demolition first
@@ -398,12 +414,42 @@ _CATEGORY_ALIASES: dict[str, str] = {
 }
 
 
+def detect_alternate_section(*texts: str | None) -> str | None:
+    """Return 'Alternate A' / 'Alternate B' when plan text names an alternate."""
+    blob = " ".join(str(text or "") for text in texts)
+    if not blob.strip():
+        return None
+    match = _ALTERNATE_RE.search(blob)
+    if not match:
+        return None
+    token = str(match.group(1) or "").strip().upper()
+    if not token:
+        return None
+    # Ignore false hits like "alternate water" / "option of".
+    if token.isalpha() and len(token) != 1:
+        return None
+    return f"Alternate {token}"
+
+
+def strip_alternate_label(description: str | None) -> str:
+    """Remove leading 'Alternate A -' / 'Alt. B —' text once the section header owns it."""
+    text = str(description or "").strip()
+    if not text:
+        return ""
+    cleaned = _ALTERNATE_PREFIX_RE.sub("", text, count=1).strip(" -–—:")
+    return cleaned or text
+
+
 def resolve_eoq_group(
     *,
     description: str | None = None,
     category: str | None = None,
+    source_reference: str | None = None,
 ) -> str:
     """Return canonical EOQ section name for an EOQ line."""
+    alternate = detect_alternate_section(category, description, source_reference)
+    if alternate:
+        return alternate
     if looks_like_mobilization(description):
         return "General"
     cat = (category or "").strip()
@@ -469,9 +515,13 @@ def group_items(
     """
     buckets: dict[str, list[T]] = {}
     for item in items:
+        source_ref = getattr(item, "source_reference", None)
+        if source_ref is None and isinstance(item, dict):
+            source_ref = item.get("source_reference")
         group = resolve_eoq_group(
             description=get_description(item),
             category=get_category(item),
+            source_reference=str(source_ref or ""),
         )
         buckets.setdefault(group, []).append(item)
     mobs = [
@@ -479,10 +529,11 @@ def group_items(
         for rows in buckets.values()
         for item in rows
         if looks_like_mobilization(get_description(item))
+        and not detect_alternate_section(get_category(item), get_description(item))
     ]
     if mobs:
         for name in list(buckets.keys()):
-            if name == "General":
+            if name == "General" or detect_alternate_section(name):
                 continue
             buckets[name] = [i for i in buckets[name] if not looks_like_mobilization(get_description(i))]
             if not buckets[name]:
@@ -492,7 +543,15 @@ def group_items(
             if mob not in gen:
                 gen.insert(0, mob)
     ordered: list[tuple[str, list[T]]] = []
+    alternate_names = sorted(
+        (name for name in buckets if detect_alternate_section(name)),
+        key=_alternate_sort_key,
+    )
     for name in EOQ_GROUP_ORDER:
+        if name == "Special":
+            for alt_name in alternate_names:
+                if buckets.get(alt_name):
+                    ordered.append((alt_name, buckets.pop(alt_name)))
         if name in buckets and buckets[name]:
             ordered.append((name, buckets.pop(name)))
     for name in sorted(buckets.keys()):
@@ -501,10 +560,23 @@ def group_items(
     return ordered
 
 
+def _alternate_sort_key(name: str) -> tuple[int, int | str]:
+    token = name.rsplit(" ", 1)[-1]
+    if token.isdigit():
+        return (1, int(token))
+    return (0, token)
+
+
 def assign_group_category(item: dict[str, Any]) -> dict[str, Any]:
     """Set item['category'] to the canonical EOQ group (copy)."""
     out = dict(item)
-    group = resolve_eoq_group(description=str(out.get("description") or ""), category=out.get("category"))
+    group = resolve_eoq_group(
+        description=str(out.get("description") or ""),
+        category=out.get("category"),
+        source_reference=str(out.get("source_reference") or ""),
+    )
     out["category"] = group
     out["eoq_group"] = group
+    if detect_alternate_section(group):
+        out["description"] = strip_alternate_label(str(out.get("description") or ""))
     return out

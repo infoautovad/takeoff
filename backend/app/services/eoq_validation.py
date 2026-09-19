@@ -13,6 +13,7 @@ from collections import defaultdict
 from typing import Any
 
 from app.services.csi_mapper import normalize_unit
+from app.services.eoq_groups import detect_alternate_section
 from app.services.item_combine import item_is_schedule
 from app.services.traffic_control import looks_like_agency_bid_number
 
@@ -244,13 +245,19 @@ def _item_group_key(item: dict[str, Any]) -> str:
     desc = _norm_text(str(item.get("description") or ""))
     size = _size_token(str(item.get("description") or ""))
     size_blob = f"|size:{size}" if size else ""
+    alt = detect_alternate_section(
+        item.get("category"),
+        item.get("description"),
+        item.get("source_reference"),
+    )
+    alt_blob = f"|alt:{alt}" if alt else ""
     if desc:
-        return f"desc:{desc}{size_blob}|unit:{unit}|cat:{category}"
+        return f"desc:{desc}{size_blob}{alt_blob}|unit:{unit}|cat:{category}"
 
     item_code = str(item.get("item_code") or "").strip().lower()
     if item_code and looks_like_agency_bid_number(item_code):
-        return f"code:{item_code}|unit:{unit}|cat:{category}"
-    return f"fallback:unknown|unit:{unit}|cat:{category}"
+        return f"code:{item_code}|unit:{unit}|cat:{category}{alt_blob}"
+    return f"fallback:unknown|unit:{unit}|cat:{category}{alt_blob}"
 
 
 def _source_signature(item: dict[str, Any]) -> str:

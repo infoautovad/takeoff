@@ -20,7 +20,13 @@ from app.models.eoq import EOQ, EOQItem, EOQItemStatus, EOQStatus
 from app.models.cad import CadModel
 from app.models.project import Project
 from app.services.bid_service import build_eoq_items_from_template, get_autovad_master_template_lines
-from app.services.eoq_groups import assign_group_category, group_items, looks_like_mobilization
+from app.services.eoq_groups import (
+    assign_group_category,
+    detect_alternate_section,
+    group_items,
+    looks_like_mobilization,
+    strip_alternate_label,
+)
 from app.services.csi_mapper import enrich_quantity_item, format_export_unit
 from app.services.item_combine import combine_similar_pay_items
 from app.services.processing import load_findings
@@ -118,6 +124,14 @@ def standard_bid_item_number(item: EOQItem) -> str:
     if item.bid_template_line_id is None:
         return "Special"
     return ""
+
+
+def display_item_description(item: EOQItem, *, group_name: str | None = None) -> str:
+    """EOQ/Excel description without repeating Alternate A/B once the section owns it."""
+    text = str(item.description or "").strip()
+    if detect_alternate_section(group_name, item.category, text):
+        return strip_alternate_label(text)
+    return text
 
 
 def status_label_for_item(item: EOQItem) -> str:
@@ -464,7 +478,7 @@ def export_eoq_csv(eoq: EOQ) -> bytes:
                     str(serial),
                     group_name,
                     standard_bid_item_number(item),
-                    item.description,
+                    display_item_description(item, group_name=group_name),
                     format_export_unit(item.unit),
                     f"{qty:.2f}",
                     f"{cost:.2f}" if cost is not None else "",
@@ -542,7 +556,9 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
 
             ws.cell(row_idx, 1, serial).alignment = Alignment(horizontal="center")
             ws.cell(row_idx, 2, standard_bid_item_number(item)).alignment = Alignment(horizontal="center")
-            ws.cell(row_idx, 3, item.description).alignment = Alignment(horizontal="left", wrap_text=True)
+            ws.cell(row_idx, 3, display_item_description(item, group_name=group_name)).alignment = Alignment(
+                horizontal="left", wrap_text=True
+            )
             ws.cell(row_idx, 4, format_export_unit(item.unit)).alignment = Alignment(horizontal="center")
 
             qty_cell = ws.cell(row_idx, 5, qty)

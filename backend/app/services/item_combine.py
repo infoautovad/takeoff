@@ -12,6 +12,7 @@ import re
 from typing import Any
 
 from app.services.csi_mapper import normalize_unit
+from app.services.eoq_groups import detect_alternate_section
 from app.services.traffic_control import looks_like_agency_bid_number
 
 _LOCATION_NOISE_RE = re.compile(
@@ -228,9 +229,15 @@ def _action(description: str) -> str | None:
     return None
 
 
-def _alternate(description: str) -> str | None:
-    m = re.search(r"\b(?:alternate|alt\.?)\s*([ab])\b", description or "", re.I)
-    return m.group(1).lower() if m else None
+def _alternate(item: dict[str, Any] | str | None, extra: str | None = None) -> str | None:
+    if isinstance(item, dict):
+        return detect_alternate_section(
+            item.get("category"),
+            item.get("description"),
+            item.get("source_reference"),
+            extra,
+        )
+    return detect_alternate_section(item, extra)
 
 
 def _agency_code(item: dict[str, Any]) -> str:
@@ -298,8 +305,7 @@ def pay_items_similar(a: dict[str, Any], b: dict[str, Any]) -> bool:
     aa, ab = _action(da), _action(db)
     if aa and ab and aa != ab:
         return False
-    alta, altb = _alternate(da), _alternate(db)
-    if alta and altb and alta != altb:
+    if _alternate(a) != _alternate(b):
         return False
     ca, cb = _agency_code(a), _agency_code(b)
     if ca and cb and ca != cb:

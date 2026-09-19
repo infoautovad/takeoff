@@ -44,6 +44,40 @@ const CATEGORY_ALIASES: Record<string, string> = {
   special: 'Special',
 }
 
+const ALTERNATE_RE =
+  /\b(?:additive|deductive|bid)?\s*(?:alternate\b|option\b|alt\.?)\s*(?:no\.?|number|#)?\s*[-:]?\s*['"]?([A-Za-z]|[0-9]{1,2})['"]?\b/i
+const ALTERNATE_PREFIX_RE =
+  /^(?:additive|deductive|bid)?\s*(?:alternate\b|option\b|alt\.?)\s*(?:no\.?|number|#)?\s*[-:]?\s*['"]?([A-Za-z]|[0-9]{1,2})['"]?\s*(?:[-–—:]+|\s+-\s+)\s*/i
+
+export function detectAlternateSection(
+  ...texts: Array<string | null | undefined>
+): string | null {
+  const blob = texts.map((text) => String(text || '')).join(' ')
+  if (!blob.trim()) return null
+  const match = blob.match(ALTERNATE_RE)
+  if (!match) return null
+  const token = String(match[1] || '').trim().toUpperCase()
+  if (!token) return null
+  if (/[A-Z]/.test(token) && token.length !== 1) return null
+  return `Alternate ${token}`
+}
+
+export function stripAlternateLabel(description?: string | null): string {
+  const text = String(description || '').trim()
+  if (!text) return ''
+  const cleaned = text.replace(ALTERNATE_PREFIX_RE, '').replace(/^[-–—:\s]+/, '').trim()
+  return cleaned || text
+}
+
+export function displayEoqDescription(
+  description?: string | null,
+  category?: string | null,
+): string {
+  const text = String(description || '').trim()
+  if (detectAlternateSection(category, text)) return stripAlternateLabel(text)
+  return text
+}
+
 const GROUP_RULES: Array<{ keys: string[]; group: string }> = [
   {
     keys: ['remove ', 'removal', 'demolition', 'sawcut', 'saw cut', 'abandon', 'mill and remove'],
@@ -241,6 +275,8 @@ function matchDescription(text: string): string | null {
 }
 
 export function resolveEoqGroup(description?: string | null, category?: string | null): string {
+  const alternate = detectAlternateSection(category, description)
+  if (alternate) return alternate
   if (looksLikeMobilization(description)) return 'General'
   const cat = (category || '').trim()
   const catLow = cat.toLowerCase()
@@ -285,10 +321,14 @@ export function groupEoqItems<T extends { description?: string | null; category?
     list.push(item)
     buckets.set(group, list)
   }
-  const mobs = items.filter((item) => looksLikeMobilization(item.description))
+  const mobs = items.filter(
+    (item) =>
+      looksLikeMobilization(item.description) &&
+      !detectAlternateSection(item.category, item.description),
+  )
   if (mobs.length) {
     for (const [name, list] of [...buckets.entries()]) {
-      if (name === 'General') continue
+      if (name === 'General' || detectAlternateSection(name)) continue
       buckets.set(
         name,
         list.filter((item) => !looksLikeMobilization(item.description)),
@@ -309,7 +349,19 @@ export function groupEoqItems<T extends { description?: string | null; category?
       items: list.map((item) => ({ ...item, display_number: serial++ })),
     })
   }
+  const alternateNames = [...buckets.keys()]
+    .filter((name) => detectAlternateSection(name))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
   for (const name of EOQ_GROUP_ORDER) {
+    if (name === 'Special') {
+      for (const altName of alternateNames) {
+        const altList = buckets.get(altName)
+        if (altList?.length) {
+          pushSection(altName, altList)
+          buckets.delete(altName)
+        }
+      }
+    }
     const list = buckets.get(name)
     if (list?.length) {
       pushSection(name, list)

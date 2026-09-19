@@ -31,7 +31,7 @@ import {
   standardBidItemNumber,
   statusColor,
 } from '@/utils/format'
-import { groupEoqItems } from '@/utils/eoqGroups'
+import { displayEoqDescription, groupEoqItems } from '@/utils/eoqGroups'
 
 const route = useRoute()
 const router = useRouter()
@@ -1176,7 +1176,7 @@ const cadDocuments = computed(() =>
                         {{ standardBidItemNumber(item) || '—' }}
                       </td>
                       <td>
-                        <div class="font-weight-medium">{{ item.description }}</div>
+                        <div class="font-weight-medium">{{ displayEoqDescription(item.description, item.category) }}</div>
                         <div v-if="item.calculation_method" class="text-caption muted text-truncate" style="max-width: 280px">
                           {{ item.calculation_method }}
                         </div>
