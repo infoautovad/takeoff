@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   analyzeTrainingCase,
   getTrainingCase,
+  uploadAutovadEoqFile,
   uploadTrainingSample,
   type TrainingCaseDetail,
 } from '@/api/training'
@@ -24,6 +25,8 @@ const generating = ref(false)
 const error = ref<string | null>(null)
 const detail = ref<TrainingCaseDetail | null>(null)
 const sampleFile = ref<File[] | File | null>(null)
+const autovadEoqFile = ref<File[] | File | null>(null)
+const stageMode = ref<'analyze' | 'import'>('analyze')
 const showEoqList = ref(false)
 
 const analyzing = ref(false)
@@ -89,6 +92,7 @@ async function load() {
   try {
     detail.value = await getTrainingCase(caseId.value)
     if (detail.value.has_autovad_eoq) showEoqList.value = true
+    if (detail.value.autovad_source === 'imported_excel') stageMode.value = 'import'
   } catch {
     error.value = 'Could not load training case (admin only).'
   } finally {
@@ -233,6 +237,39 @@ async function uploadSample() {
   }
 }
 
+async function uploadAutovadEoq() {
+  const file = pickFile(autovadEoqFile.value)
+  if (!file) {
+    error.value = 'Choose an AutoVAD Estimate Of Quantities Excel (or CSV) from the user portal'
+    return
+  }
+  uploading.value = true
+  uploadModal.value = true
+  uploadProgress.value = 0
+  uploadProgressLabel.value = `Uploading ${file.name}…`
+  error.value = null
+  try {
+    detail.value = await uploadAutovadEoqFile(caseId.value, file, (percent) => {
+      uploadProgress.value = percent
+      uploadProgressLabel.value =
+        percent >= 100 ? 'Parsing AutoVAD EOQ…' : `Uploading ${file.name}…`
+    })
+    uploadProgress.value = 100
+    uploadProgressLabel.value = 'Import complete'
+    autovadEoqFile.value = null
+    showEoqList.value = true
+    await nextTick()
+    setTimeout(() => {
+      uploadModal.value = false
+    }, 600)
+  } catch (err) {
+    error.value = errDetail(err, 'Could not import AutoVAD EOQ Excel')
+    uploadModal.value = false
+  } finally {
+    uploading.value = false
+  }
+}
+
 async function runAnalyze() {
   if (!detail.value?.has_sample) {
     error.value = 'Upload a sample plan file first'
@@ -262,7 +299,10 @@ async function runAnalyze() {
 
 function runGenerateEoq() {
   if (!detail.value?.has_autovad_eoq) {
-    error.value = 'Run Analyze first, then Generate Estimate Of Quantities.'
+    error.value =
+      stageMode.value === 'import'
+        ? 'Upload an AutoVAD EOQ Excel first, then Generate Estimate Of Quantities.'
+        : 'Run Analyze first, then Generate Estimate Of Quantities.'
     return
   }
   generating.value = true
@@ -298,7 +338,9 @@ function formatQty(q: unknown) {
       <div>
         <div class="page-kicker">Stage 1</div>
         <h1 class="brand-font text-h4 mb-1">Analyze plan</h1>
-        <p class="muted mb-0">{{ detail?.name || '…' }} — same Analyze → Generate flow as user projects</p>
+        <p class="muted mb-0">
+          {{ detail?.name || '…' }} — Analyze a plan, or import an AutoVAD EOQ Excel already generated in the user portal
+        </p>
       </div>
       <div class="d-flex ga-2 align-start">
         <v-btn variant="tonal" @click="router.push(`/backend/cases/${caseId}`)">Case hub</v-btn>
@@ -318,71 +360,150 @@ function formatQty(q: unknown) {
 
     <template v-else-if="detail">
       <div class="surface-panel pa-5 mb-4">
-        <h2 class="brand-font text-h6 mb-2">Upload &amp; Analyze</h2>
-        <p class="text-caption muted mb-3">
-          Current sample: {{ detail.sample_filename || 'none' }}
-          <span v-if="detail.actual_notes"> · {{ detail.actual_notes }}</span>
-        </p>
-        <v-file-input
-          v-model="sampleFile"
-          label="Sample plan PDF / DWG / DXF"
-          accept=".pdf,.dxf,.xml,.landxml,.json,.dwg"
-          prepend-icon=""
-          prepend-inner-icon="mdi-file-cad"
-          show-size
-          :disabled="uploading || analyzing"
-          class="mb-3"
-        />
-        <div v-if="uploading" class="upload-progress mb-3">
-          <div class="d-flex justify-space-between align-center text-caption mb-1">
-            <span class="upload-progress__label">{{ uploadProgressLabel }}</span>
-            <span class="upload-progress__pct font-weight-medium">{{ uploadProgress }}%</span>
-          </div>
-          <v-progress-linear
-            :model-value="uploadProgress"
+        <div class="d-flex flex-wrap justify-space-between align-center ga-3 mb-3">
+          <h2 class="brand-font text-h6 mb-0">Stage 1 source</h2>
+          <v-btn-toggle
+            v-model="stageMode"
+            mandatory
+            density="comfortable"
             color="primary"
-            height="8"
-            rounded
-          />
+            variant="outlined"
+            divided
+            class="stage-mode-toggle"
+          >
+            <v-btn value="analyze">Analyze plan</v-btn>
+            <v-btn value="import">Import AutoVAD Excel</v-btn>
+          </v-btn-toggle>
         </div>
-        <div class="d-flex flex-wrap ga-2">
-          <v-btn
-            color="secondary"
-            variant="tonal"
-            :loading="uploading"
+
+        <template v-if="stageMode === 'analyze'">
+          <p class="text-caption muted mb-3">
+            Main path: upload a plan, Analyze, then compare. Current sample:
+            {{ detail.sample_filename || 'none' }}
+            <span v-if="detail.actual_notes && detail.autovad_source !== 'imported_excel'">
+              · {{ detail.actual_notes }}
+            </span>
+          </p>
+          <v-file-input
+            v-model="sampleFile"
+            label="Sample plan PDF / DWG / DXF"
+            accept=".pdf,.dxf,.xml,.landxml,.json,.dwg"
+            prepend-icon=""
+            prepend-inner-icon="mdi-file-cad"
+            show-size
             :disabled="uploading || analyzing"
-            @click="uploadSample"
-          >
-            {{ uploading ? `Uploading ${uploadProgress}%` : 'Upload sample' }}
-          </v-btn>
-          <v-btn
-            color="primary"
-            prepend-icon="mdi-brain"
-            :loading="analyzing"
-            :disabled="!detail.has_sample || analyzing"
-            @click="runAnalyze"
-          >
-            Analyze
-          </v-btn>
-          <v-btn
-            color="secondary"
-            variant="tonal"
-            :loading="generating"
-            :disabled="!detail.has_autovad_eoq"
-            @click="runGenerateEoq"
-          >
-            Generate Estimate Of Quantities
-          </v-btn>
-          <v-btn
-            v-if="detail.has_autovad_eoq"
-            variant="text"
-            color="primary"
-            :disabled="!detail.has_autovad_eoq"
-            @click="router.push(`/backend/cases/${caseId}/original`)"
-          >
-            Next: Original EOQ →
-          </v-btn>
-        </div>
+            class="mb-3"
+          />
+          <div v-if="uploading && stageMode === 'analyze'" class="upload-progress mb-3">
+            <div class="d-flex justify-space-between align-center text-caption mb-1">
+              <span class="upload-progress__label">{{ uploadProgressLabel }}</span>
+              <span class="upload-progress__pct font-weight-medium">{{ uploadProgress }}%</span>
+            </div>
+            <v-progress-linear
+              :model-value="uploadProgress"
+              color="primary"
+              height="8"
+              rounded
+            />
+          </div>
+          <div class="d-flex flex-wrap ga-2">
+            <v-btn
+              color="secondary"
+              variant="tonal"
+              :loading="uploading"
+              :disabled="uploading || analyzing"
+              @click="uploadSample"
+            >
+              {{ uploading ? `Uploading ${uploadProgress}%` : 'Upload sample' }}
+            </v-btn>
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-brain"
+              :loading="analyzing"
+              :disabled="!detail.has_sample || analyzing"
+              @click="runAnalyze"
+            >
+              Analyze
+            </v-btn>
+            <v-btn
+              color="secondary"
+              variant="tonal"
+              :loading="generating"
+              :disabled="!detail.has_autovad_eoq"
+              @click="runGenerateEoq"
+            >
+              Generate Estimate Of Quantities
+            </v-btn>
+            <v-btn
+              v-if="detail.has_autovad_eoq"
+              variant="text"
+              color="primary"
+              :disabled="!detail.has_autovad_eoq"
+              @click="router.push(`/backend/cases/${caseId}/original`)"
+            >
+              Next: Original EOQ →
+            </v-btn>
+          </div>
+        </template>
+
+        <template v-else>
+          <p class="text-caption muted mb-3">
+            Alternate path: if this takeoff was already generated in the user portal, upload that
+            AutoVAD EOQ Excel here and skip Analyze. Then compare against the original EOQ as usual.
+            <span v-if="detail.actual_filename"> Current: {{ detail.actual_filename }}</span>
+          </p>
+          <v-file-input
+            v-model="autovadEoqFile"
+            label="AutoVAD EOQ Excel / CSV"
+            accept=".xlsx,.xls,.csv"
+            prepend-icon=""
+            prepend-inner-icon="mdi-file-excel"
+            show-size
+            :disabled="uploading || analyzing"
+            class="mb-3"
+          />
+          <div v-if="uploading && stageMode === 'import'" class="upload-progress mb-3">
+            <div class="d-flex justify-space-between align-center text-caption mb-1">
+              <span class="upload-progress__label">{{ uploadProgressLabel }}</span>
+              <span class="upload-progress__pct font-weight-medium">{{ uploadProgress }}%</span>
+            </div>
+            <v-progress-linear
+              :model-value="uploadProgress"
+              color="primary"
+              height="8"
+              rounded
+            />
+          </div>
+          <div class="d-flex flex-wrap ga-2">
+            <v-btn
+              color="primary"
+              prepend-icon="mdi-file-excel"
+              :loading="uploading"
+              :disabled="uploading || analyzing"
+              @click="uploadAutovadEoq"
+            >
+              {{ uploading ? `Uploading ${uploadProgress}%` : 'Upload AutoVAD EOQ' }}
+            </v-btn>
+            <v-btn
+              color="secondary"
+              variant="tonal"
+              :loading="generating"
+              :disabled="!detail.has_autovad_eoq"
+              @click="runGenerateEoq"
+            >
+              Generate Estimate Of Quantities
+            </v-btn>
+            <v-btn
+              v-if="detail.has_autovad_eoq"
+              variant="text"
+              color="primary"
+              :disabled="!detail.has_autovad_eoq"
+              @click="router.push(`/backend/cases/${caseId}/original`)"
+            >
+              Next: Original EOQ →
+            </v-btn>
+          </div>
+        </template>
       </div>
 
       <div id="training-eoq-list" class="surface-panel pa-5">
@@ -390,15 +511,26 @@ function formatQty(q: unknown) {
           <h2 class="brand-font text-h6 mb-0">Estimate Of Quantities</h2>
           <div class="d-flex flex-wrap ga-2" v-if="showEoqList && autovadItems.length">
             <v-chip size="small" variant="tonal">{{ autovadItems.length }} items</v-chip>
-            <v-chip size="small" variant="tonal">{{ detail.actual_engine || 'autovad' }}</v-chip>
+            <v-chip size="small" variant="tonal">
+              {{
+                detail.autovad_source === 'imported_excel'
+                  ? 'Imported Excel'
+                  : detail.actual_engine || 'autovad'
+              }}
+            </v-chip>
           </div>
         </div>
 
         <div v-if="!showEoqList" class="muted text-center py-10">
-          Analyze the plan, then click <strong>Generate Estimate Of Quantities</strong> to show the full list here.
+          <template v-if="stageMode === 'import'">
+            Upload an AutoVAD EOQ Excel, then click <strong>Generate Estimate Of Quantities</strong> to show the full list here.
+          </template>
+          <template v-else>
+            Analyze the plan, then click <strong>Generate Estimate Of Quantities</strong> to show the full list here.
+          </template>
         </div>
         <div v-else-if="!autovadItems.length" class="muted text-center py-10">
-          No quantity items yet. Re-run Analyze.
+          No quantity items yet. {{ stageMode === 'import' ? 'Re-upload the AutoVAD EOQ Excel.' : 'Re-run Analyze.' }}
         </div>
         <v-table v-else density="comfortable" class="eoq-table">
           <thead>
@@ -439,7 +571,9 @@ function formatQty(q: unknown) {
         <div class="analyze-modal-head">
           <div>
             <div class="page-kicker mb-1">Training lab</div>
-            <h2 class="brand-font text-h5 mb-0">Uploading sample</h2>
+            <h2 class="brand-font text-h5 mb-0">
+              {{ stageMode === 'import' ? 'Importing AutoVAD EOQ' : 'Uploading sample' }}
+            </h2>
           </div>
         </div>
         <p class="analyze-target muted">{{ uploadProgressLabel }}</p>
@@ -561,6 +695,9 @@ function formatQty(q: unknown) {
 </template>
 
 <style scoped>
+.stage-mode-toggle {
+  flex-wrap: wrap;
+}
 .upload-progress__label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -585,9 +722,9 @@ function formatQty(q: unknown) {
 .analyze-modal {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(165deg, #12211c 0%, #0a1512 55%, #07110e 100%);
-  border: 1px solid rgba(217, 255, 67, 0.28);
-  color: #eaf0eb;
+  background: linear-gradient(165deg, #12202a 0%, #0a1218 55%, #061018 100%);
+  border: 1px solid rgba(30, 182, 255, 0.28);
+  color: #e8eef4;
   padding: 26px 26px 22px;
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
 }
@@ -599,7 +736,7 @@ function formatQty(q: unknown) {
   right: -60px;
   top: -80px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 255, 67, 0.18), transparent 68%);
+  background: radial-gradient(circle, rgba(30, 182, 255, 0.18), transparent 68%);
   pointer-events: none;
 }
 
@@ -621,8 +758,8 @@ function formatQty(q: unknown) {
 }
 
 .analyze-close:hover {
-  border-color: var(--acid, #d9ff43);
-  color: var(--acid, #d9ff43);
+  border-color: var(--acid, #1eb6ff);
+  color: var(--acid, #1eb6ff);
 }
 
 .analyze-target {
@@ -631,7 +768,7 @@ function formatQty(q: unknown) {
 }
 
 .analyze-target strong {
-  color: #eaf0eb;
+  color: #e8eef4;
   word-break: break-word;
 }
 
@@ -649,7 +786,7 @@ function formatQty(q: unknown) {
 }
 
 .analyze-meter-top b {
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
   font-size: 1.35rem;
   letter-spacing: -0.03em;
   font-family: inherit;
@@ -658,15 +795,15 @@ function formatQty(q: unknown) {
 .analyze-track {
   position: relative;
   height: 8px;
-  background: #1a2b24;
+  background: #12202a;
   overflow: hidden;
 }
 
 .analyze-track i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #85ffd0, #d9ff43);
-  box-shadow: 0 0 14px rgba(217, 255, 67, 0.45);
+  background: linear-gradient(90deg, #85ffd0, #1eb6ff);
+  box-shadow: 0 0 14px rgba(30, 182, 255, 0.45);
   transition: width 0.35s ease;
 }
 
@@ -710,16 +847,16 @@ function formatQty(q: unknown) {
 .analyze-steps li.done span {
   background: #85ffd0;
   border-color: #85ffd0;
-  box-shadow: 0 0 8px rgba(133, 255, 208, 0.45);
+  box-shadow: 0 0 8px rgba(30, 182, 255, 0.45);
 }
 
 .analyze-steps li.active {
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
 }
 
 .analyze-steps li.active span {
-  border-color: var(--acid, #d9ff43);
-  background: rgba(217, 255, 67, 0.35);
+  border-color: var(--acid, #1eb6ff);
+  background: rgba(30, 182, 255, 0.35);
   animation: analyze-blink 1s ease infinite;
 }
 
@@ -733,7 +870,7 @@ function formatQty(q: unknown) {
 }
 
 .analyze-message.success {
-  border-color: rgba(133, 255, 208, 0.4);
+  border-color: rgba(30, 182, 255, 0.4);
   color: #b8f0d8;
 }
 

@@ -26,6 +26,9 @@ from app.services.storage import storage_service
 
 logger = logging.getLogger(__name__)
 
+IMPORTED_EXCEL_ENGINE = "imported_excel"
+_SECTION_BANNER_RE = re.compile(r"^=+\s*(.+?)\s*=+$")
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -88,7 +91,7 @@ def update_case(
 
 
 def delete_case(db: Session, case: TrainingCase) -> None:
-    for key in (case.sample_storage_key, case.expected_storage_key):
+    for key in (case.sample_storage_key, case.expected_storage_key, case.actual_storage_key):
         if key:
             try:
                 storage_service.delete_file(key)
@@ -96,6 +99,20 @@ def delete_case(db: Session, case: TrainingCase) -> None:
                 pass
     db.delete(case)
     db.commit()
+
+
+def _clear_autovad_eoq(case: TrainingCase) -> None:
+    if case.actual_storage_key:
+        try:
+            storage_service.delete_file(case.actual_storage_key)
+        except Exception:
+            pass
+    case.actual_json = None
+    case.actual_engine = None
+    case.actual_notes = None
+    case.analyzed_at = None
+    case.actual_filename = None
+    case.actual_storage_key = None
 
 
 async def save_sample_file(db: Session, case: TrainingCase, *, filename: str, data: bytes) -> TrainingCase:
@@ -112,10 +129,7 @@ async def save_sample_file(db: Session, case: TrainingCase, *, filename: str, da
     case.sample_content_type = guess_content_type(filename)
     case.sample_file_size = len(data)
     # New sample invalidates prior AutoVAD EOQ / status
-    case.actual_json = None
-    case.actual_engine = None
-    case.actual_notes = None
-    case.analyzed_at = None
+    _clear_autovad_eoq(case)
     case.updated_at = _now()
     _refresh_ready_status(case)
     db.commit()
@@ -153,8 +167,7 @@ async def save_expected_file(db: Session, case: TrainingCase, *, filename: str, 
     if not items:
         raise ValueError(
             "No Estimate Of Quantities items found in that file. "
-            "For CAD/plan-sheet EOQ PDFs (tables drawn as graphics), ensure OPENAI_API_KEY is set "
-            "so vision can read the sheet. Or upload Excel/CSV with Description, Unit, Quantity columns."
+            "PDF and image originals are read with vision; Excel/CSV needs Description, Unit, and Quantity columns."
         )
 
     case.expected_filename = filename
@@ -202,6 +215,275 @@ def parse_expected_eoq_file(path: Path, filename: str) -> list[dict[str, Any]]:
         "Original Estimate Of Quantities must be PDF, Excel (.xlsx/.xls), CSV, or image "
         "(PNG/JPG/TIF). JSON is also accepted for advanced/gold-set use."
     )
+
+
+def parse_autovad_eoq_file(path: Path, filename: str) -> list[dict[str, Any]]:
+    """Parse an AutoVAD user-portal EOQ export (Excel / CSV / JSON) into actual items."""
+    ext = Path(filename).suffix.lower() or path.suffix.lower()
+    if ext == ".json":
+        payload = json.loads(path.read_text(encoding="utf-8", errors="ignore"))
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict):
+            rows = payload.get("items") or payload.get("actual_items") or []
+        else:
+            rows = []
+        return [item for item in (_normalize_autovad_item(r) for r in rows) if item]
+    if ext in {".xlsx", ".xls"}:
+        return _parse_autovad_excel(path)
+    if ext == ".csv":
+        return _parse_autovad_csv(path)
+    raise ValueError("AutoVAD Estimate Of Quantities must be Excel (.xlsx/.xls) or CSV.")
+
+
+def _cell_str(value: Any) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _looks_like_header_row(cells: list[str]) -> bool:
+    lower = [c.strip().lower() for c in cells if c]
+    has_desc = any(c == "item description" or c == "description" or "item description" in c for c in lower)
+    has_unit = any(c in {"unit", "uom"} for c in lower)
+    has_qty = any("quantity" in c or c == "qty" for c in lower)
+    return has_desc and (has_unit or has_qty)
+
+
+def _header_index(headers: list[str], *names: str) -> int | None:
+    cleaned = [h.strip().lower() for h in headers]
+    for name in names:
+        key = name.lower()
+        if key in cleaned:
+            return cleaned.index(key)
+    for name in names:
+        key = name.lower()
+        for i, header in enumerate(cleaned):
+            if key and key in header:
+                return i
+    return None
+
+
+def _is_item_number(value: Any) -> bool:
+    text = _cell_str(value)
+    if not text:
+        return False
+    try:
+        float(text.replace(",", ""))
+        return True
+    except ValueError:
+        return False
+
+
+def _parse_optional_float(value: Any) -> float | None:
+    if value is None or _cell_str(value) == "":
+        return None
+    try:
+        number = float(re.sub(r"[^\d.\-]", "", str(value).replace(",", "")) or "nan")
+    except ValueError:
+        return None
+    if number != number:  # NaN
+        return None
+    return number
+
+
+def _section_name_from_row(
+    values: list[Any],
+    *,
+    desc_i: int | None,
+    unit_i: int | None,
+    qty_i: int | None,
+    item_no_i: int | None,
+    cat_i: int | None,
+) -> str | None:
+    desc = _cell_str(values[desc_i] if desc_i is not None and desc_i < len(values) else "")
+    first = _cell_str(values[0] if values else "")
+    unit = _cell_str(values[unit_i] if unit_i is not None and unit_i < len(values) else "")
+    qty = values[qty_i] if qty_i is not None and qty_i < len(values) else None
+    item_no = values[item_no_i] if item_no_i is not None and item_no_i < len(values) else None
+    group = _cell_str(values[cat_i] if cat_i is not None and cat_i < len(values) else "")
+    banner = _SECTION_BANNER_RE.match(desc)
+    if banner:
+        return banner.group(1).strip()
+    qty_empty = qty is None or _cell_str(qty) == ""
+    item_no_empty = item_no is None or not _is_item_number(item_no)
+    if first and item_no_empty and not unit and qty_empty and (not desc or desc == first):
+        lower = first.lower()
+        if lower not in {"estimate of quantities", "item description", "description"}:
+            return first
+    if group and item_no_empty and not unit and qty_empty and (not desc or desc == group):
+        return group
+    return None
+
+
+def _normalize_autovad_item(row: dict[str, Any] | None, *, category: str | None = None) -> dict[str, Any] | None:
+    if not row or not isinstance(row, dict):
+        return None
+    desc = str(
+        row.get("description")
+        or row.get("item_description")
+        or row.get("item description")
+        or row.get("desc")
+        or row.get("item")
+        or ""
+    ).strip()
+    if not desc or _SECTION_BANNER_RE.match(desc):
+        return None
+    if desc.lower() in {
+        "item description",
+        "description",
+        "estimate of quantities",
+        "for bidding purposes only",
+    }:
+        return None
+    unit = str(row.get("unit") or row.get("uom") or "UNIT").strip() or "UNIT"
+    quantity = _parse_optional_float(
+        row.get("quantity")
+        if row.get("quantity") is not None
+        else row.get("qty") or row.get("approx. quantity") or row.get("approx quantity")
+    )
+    item_code = (
+        row.get("item_code")
+        or row.get("standard_bid_item_number")
+        or row.get("standard bid item number")
+        or row.get("std_bid_no")
+        or row.get("std bid no")
+    )
+    item_no = row.get("item_no") or row.get("item_number") or row.get("item number") or row.get("item no")
+    group = category or row.get("category") or row.get("group")
+    confidence = _parse_optional_float(row.get("confidence") if row.get("confidence") is not None else row.get("ai confidence"))
+    source = row.get("source_reference") or row.get("source")
+    method = row.get("calculation_method") or row.get("calculation method")
+    item: dict[str, Any] = {
+        "description": desc,
+        "unit": unit,
+        "quantity": quantity,
+        "category": str(group).strip() if group not in (None, "") else None,
+        "group": str(group).strip() if group not in (None, "") else None,
+        "item_code": str(item_code).strip() if item_code not in (None, "") else None,
+        "item_no": str(item_no).strip() if item_no not in (None, "") else None,
+        "confidence": confidence,
+        "calculation_method": str(method).strip() if method not in (None, "") else None,
+        "source_reference": str(source).strip() if source not in (None, "") else None,
+    }
+    return item
+
+
+def _parse_autovad_table(rows: list[list[Any]]) -> list[dict[str, Any]]:
+    header_i: int | None = None
+    headers: list[str] = []
+    for i, row in enumerate(rows[:20]):
+        cells = [_cell_str(c) for c in row]
+        if _looks_like_header_row(cells):
+            header_i = i
+            headers = [c.lower() for c in cells]
+            break
+    if header_i is None:
+        return []
+
+    desc_i = _header_index(headers, "item description", "description", "particular", "item")
+    unit_i = _header_index(headers, "unit", "uom")
+    qty_i = _header_index(headers, "quantity", "approx. quantity", "approx quantity", "qty")
+    code_i = _header_index(headers, "standard bid item number", "std bid no", "std bid", "item code", "bid item")
+    item_no_i = _header_index(headers, "item number", "item no", "item#")
+    cat_i = _header_index(headers, "group", "category", "division")
+    conf_i = _header_index(headers, "ai confidence", "confidence")
+    method_i = _header_index(headers, "calculation method")
+    source_i = _header_index(headers, "source")
+    if desc_i is None:
+        return []
+
+    current_cat: str | None = None
+    items: list[dict[str, Any]] = []
+    for row in rows[header_i + 1 :]:
+        values = list(row)
+        if not values or all(v in (None, "") for v in values):
+            continue
+        section = _section_name_from_row(
+            values,
+            desc_i=desc_i,
+            unit_i=unit_i,
+            qty_i=qty_i,
+            item_no_i=item_no_i,
+            cat_i=cat_i,
+        )
+        if section:
+            current_cat = section
+            continue
+        if desc_i >= len(values) or not _cell_str(values[desc_i]):
+            continue
+        payload = {
+            "description": values[desc_i],
+            "unit": values[unit_i] if unit_i is not None and unit_i < len(values) else "UNIT",
+            "quantity": values[qty_i] if qty_i is not None and qty_i < len(values) else None,
+            "item_code": values[code_i] if code_i is not None and code_i < len(values) else None,
+            "item_number": values[item_no_i] if item_no_i is not None and item_no_i < len(values) else None,
+            "category": values[cat_i] if cat_i is not None and cat_i < len(values) else current_cat,
+            "confidence": values[conf_i] if conf_i is not None and conf_i < len(values) else None,
+            "calculation_method": values[method_i] if method_i is not None and method_i < len(values) else None,
+            "source": values[source_i] if source_i is not None and source_i < len(values) else None,
+        }
+        item = _normalize_autovad_item(payload, category=current_cat or payload.get("category"))
+        if item:
+            items.append(item)
+    return items
+
+
+def _parse_autovad_excel(path: Path) -> list[dict[str, Any]]:
+    from openpyxl import load_workbook
+
+    wb = load_workbook(path, data_only=True, read_only=True)
+    sheet_name = "Estimate Of Quantities" if "Estimate Of Quantities" in wb.sheetnames else wb.active.title
+    ws = wb[sheet_name]
+    rows = [list(row) for row in ws.iter_rows(values_only=True)]
+    wb.close()
+    return _parse_autovad_table(rows)
+
+
+def _parse_autovad_csv(path: Path) -> list[dict[str, Any]]:
+    import csv
+    import io
+
+    text = path.read_text(encoding="utf-8-sig", errors="ignore")
+    rows = [list(row) for row in csv.reader(io.StringIO(text))]
+    return _parse_autovad_table(rows)
+
+
+async def save_autovad_eoq_file(db: Session, case: TrainingCase, *, filename: str, data: bytes) -> TrainingCase:
+    """Upload an AutoVAD-generated EOQ Excel from the user portal and skip re-analyze."""
+    if case.actual_storage_key:
+        try:
+            storage_service.delete_file(case.actual_storage_key)
+        except Exception:
+            pass
+
+    safe = Path(filename).name.replace(" ", "_")
+    key = f"training/{case.id}/autovad_{safe}"
+    await storage_service.save_file(key, data)
+    path = storage_service.resolve_local_path(key)
+
+    items = parse_autovad_eoq_file(path, filename)
+    if not items:
+        try:
+            storage_service.delete_file(key)
+        except Exception:
+            pass
+        raise ValueError(
+            "No AutoVAD Estimate Of Quantities items found in that file. "
+            "Upload the Excel (or CSV) downloaded from the user portal after Generate Estimate Of Quantities."
+        )
+
+    case.actual_json = json.dumps(items, ensure_ascii=False)
+    case.actual_engine = IMPORTED_EXCEL_ENGINE
+    case.actual_notes = f"Imported AutoVAD EOQ from user portal ({filename}). Analyze skipped."
+    case.actual_filename = filename
+    case.actual_storage_key = key
+    case.analyzed_at = _now()
+    case.updated_at = _now()
+    _refresh_ready_status(case)
+    db.commit()
+    db.refresh(case)
+    return case
 
 
 def _normalize_expected_item(row: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -503,8 +785,13 @@ def _extract_expected_via_ai(
             if item:
                 out.append(item)
         return out
-    except Exception:
+    except Exception as exc:
         logger.exception("EOQ vision/text extraction failed for %s", filename)
+        if images:
+            raise ValueError(
+                "Could not read this original EOQ file with vision. "
+                f"{exc}"
+            ) from exc
         return []
 
 
@@ -571,9 +858,16 @@ def run_autovad_analyze(db: Session, case: TrainingCase) -> TrainingCase:
             "or export DWG→DXF. For PDF: check OpenAI key."
         )
 
+    if case.actual_storage_key:
+        try:
+            storage_service.delete_file(case.actual_storage_key)
+        except Exception:
+            pass
     case.actual_json = json.dumps(actual_items, ensure_ascii=False)
     case.actual_engine = engine
     case.actual_notes = notes
+    case.actual_filename = None
+    case.actual_storage_key = None
     case.analyzed_at = _now()
     case.updated_at = _now()
     _refresh_ready_status(case)
@@ -586,7 +880,9 @@ def run_evaluation(db: Session, case: TrainingCase, *, user_id: int) -> Training
     """Stage 3: Compare AutoVAD EOQ vs original EOQ and write a training report."""
     actual_items = _load_json(case.actual_json)
     if not isinstance(actual_items, list) or not actual_items:
-        raise ValueError("Stage 1 incomplete — run Analyze on the sample plan first")
+        raise ValueError(
+            "Stage 1 incomplete — run Analyze on the sample plan, or upload an AutoVAD EOQ Excel from the user portal"
+        )
     if not case.expected_json:
         raise ValueError("Stage 2 incomplete — upload the original Estimate Of Quantities file first")
 
@@ -609,7 +905,7 @@ def run_evaluation(db: Session, case: TrainingCase, *, user_id: int) -> Training
         metrics = compare.to_dict()
         guidance, ai_generated = _build_training_guidance(
             case_name=case.name,
-            filename=case.sample_filename or "",
+            filename=case.sample_filename or case.actual_filename or "",
             metrics=metrics,
             expected=expected,
             actual=actual_items,
@@ -936,6 +1232,12 @@ def case_to_dict(case: TrainingCase, *, include_runs: bool = False) -> dict[str,
         "autovad_item_count": len(actual_items),
         "actual_engine": case.actual_engine,
         "actual_notes": case.actual_notes,
+        "actual_filename": case.actual_filename,
+        "autovad_source": (
+            "imported_excel"
+            if case.actual_engine == IMPORTED_EXCEL_ENGINE
+            else ("analyze" if actual_items else None)
+        ),
         "analyzed_at": case.analyzed_at.isoformat() if case.analyzed_at else None,
         "has_expected": bool(case.expected_json),
         "expected_filename": case.expected_filename,

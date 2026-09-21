@@ -96,14 +96,17 @@ async function createCase() {
               Create case
             </v-btn>
             <p class="text-caption muted mt-3 mb-0">
-              Opens Stage 1 (Analyze) on its own page — then Original EOQ → Evaluate.
+              Opens Stage 1 on its own page — Analyze a plan or import AutoVAD Excel, then Original EOQ → Evaluate.
             </p>
           </div>
           <div class="surface-panel pa-5">
             <h2 class="brand-font text-h6 mb-2">How this lab works</h2>
             <ol class="lab-steps muted mb-0">
               <li>Create a case</li>
-              <li><strong>Stage 1:</strong> Upload plan PDF/DWG → Analyze → AutoVAD EOQ</li>
+              <li>
+                <strong>Stage 1:</strong> Upload plan PDF/DWG → Analyze → AutoVAD EOQ
+                <em>(or import an AutoVAD EOQ Excel already generated in the user portal)</em>
+              </li>
               <li><strong>Stage 2:</strong> Upload original EOQ (PDF/Excel/CSV/image)</li>
               <li><strong>Stage 3:</strong> Evaluate differences → training report</li>
             </ol>
@@ -126,13 +129,17 @@ async function createCase() {
                 <div>
                   <div class="font-weight-medium">{{ c.name }}</div>
                   <div class="text-caption muted">
-                    {{ c.sample_filename || 'No sample yet' }}
+                    {{ c.sample_filename || c.actual_filename || 'No AutoVAD EOQ yet' }}
                     · {{ c.expected_item_count }} gold items
                     · {{ c.status }}
                   </div>
                 </div>
-                <v-chip size="small" :color="c.has_sample && c.has_expected ? 'success' : 'warning'" variant="tonal">
-                  {{ c.has_sample && c.has_expected ? 'Ready' : 'Draft' }}
+                <v-chip
+                  size="small"
+                  :color="c.has_autovad_eoq && c.has_expected ? 'success' : 'warning'"
+                  variant="tonal"
+                >
+                  {{ c.has_autovad_eoq && c.has_expected ? 'Ready' : c.has_autovad_eoq ? 'Analyzed' : 'Draft' }}
                 </v-chip>
               </div>
             </div>
@@ -150,13 +157,13 @@ async function createCase() {
   font-size: 0.9rem;
 }
 .case-row {
-  border: 1px solid rgba(217, 255, 67, 0.12);
+  border: 1px solid rgba(30, 182, 255, 0.12);
   border-radius: 10px;
-  background: rgba(7, 16, 14, 0.35);
+  background: rgba(6, 16, 24, 0.35);
   cursor: pointer;
   transition: border-color 0.15s ease;
 }
 .case-row:hover {
-  border-color: rgba(217, 255, 67, 0.45);
+  border-color: rgba(30, 182, 255, 0.45);
 }
 </style>

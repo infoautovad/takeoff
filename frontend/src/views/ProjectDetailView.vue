@@ -1517,9 +1517,9 @@ const cadDocuments = computed(() =>
 .analyze-modal {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(165deg, #12211c 0%, #0a1512 55%, #07110e 100%);
-  border: 1px solid rgba(217, 255, 67, 0.28);
-  color: #eaf0eb;
+  background: linear-gradient(165deg, #12202a 0%, #0a1218 55%, #061018 100%);
+  border: 1px solid rgba(30, 182, 255, 0.28);
+  color: #e8eef4;
   padding: 26px 26px 22px;
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
 }
@@ -1531,7 +1531,7 @@ const cadDocuments = computed(() =>
   right: -60px;
   top: -80px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 255, 67, 0.18), transparent 68%);
+  background: radial-gradient(circle, rgba(30, 182, 255, 0.18), transparent 68%);
   pointer-events: none;
 }
 
@@ -1553,8 +1553,8 @@ const cadDocuments = computed(() =>
 }
 
 .analyze-close:hover {
-  border-color: var(--acid, #d9ff43);
-  color: var(--acid, #d9ff43);
+  border-color: var(--acid, #1eb6ff);
+  color: var(--acid, #1eb6ff);
 }
 
 .analyze-target {
@@ -1563,7 +1563,7 @@ const cadDocuments = computed(() =>
 }
 
 .analyze-target strong {
-  color: #eaf0eb;
+  color: #e8eef4;
   word-break: break-word;
 }
 
@@ -1581,7 +1581,7 @@ const cadDocuments = computed(() =>
 }
 
 .analyze-meter-top b {
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
   font-size: 1.35rem;
   letter-spacing: -0.03em;
   font-family: inherit;
@@ -1590,15 +1590,15 @@ const cadDocuments = computed(() =>
 .analyze-track {
   position: relative;
   height: 8px;
-  background: #1a2b24;
+  background: #12202a;
   overflow: hidden;
 }
 
 .analyze-track i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #85ffd0, #d9ff43);
-  box-shadow: 0 0 14px rgba(217, 255, 67, 0.45);
+  background: linear-gradient(90deg, #85ffd0, #1eb6ff);
+  box-shadow: 0 0 14px rgba(30, 182, 255, 0.45);
   transition: width 0.35s ease;
 }
 
@@ -1642,16 +1642,16 @@ const cadDocuments = computed(() =>
 .analyze-steps li.done span {
   background: #85ffd0;
   border-color: #85ffd0;
-  box-shadow: 0 0 8px rgba(133, 255, 208, 0.45);
+  box-shadow: 0 0 8px rgba(30, 182, 255, 0.45);
 }
 
 .analyze-steps li.active {
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
 }
 
 .analyze-steps li.active span {
-  border-color: var(--acid, #d9ff43);
-  background: rgba(217, 255, 67, 0.35);
+  border-color: var(--acid, #1eb6ff);
+  background: rgba(30, 182, 255, 0.35);
   animation: analyze-blink 1s ease infinite;
 }
 
@@ -1665,7 +1665,7 @@ const cadDocuments = computed(() =>
 }
 
 .analyze-message.success {
-  border-color: rgba(133, 255, 208, 0.4);
+  border-color: rgba(30, 182, 255, 0.4);
   color: #b8f0d8;
 }
 
@@ -1713,7 +1713,7 @@ const cadDocuments = computed(() =>
 }
 
 .plan-tips {
-  border: 1px solid var(--panel-border, #24322c);
+  border: 1px solid var(--panel-border, #1e2c38);
   padding: 8px 10px;
   background: rgba(255, 255, 255, 0.02);
 }
@@ -1748,13 +1748,13 @@ const cadDocuments = computed(() =>
 .analysis-box {
   border: 1px solid var(--panel-border);
   border-radius: 0;
-  background: #0d1814;
+  background: #0a141c;
   color: var(--text);
 }
 
 .analysis-box {
-  background: rgba(217, 255, 67, 0.04);
-  border-color: rgba(217, 255, 67, 0.22);
+  background: rgba(30, 182, 255, 0.04);
+  border-color: rgba(30, 182, 255, 0.22);
 }
 
 .chat-box {
@@ -1763,7 +1763,7 @@ const cadDocuments = computed(() =>
   border: 1px solid var(--panel-border);
   border-radius: 0;
   padding: 16px;
-  background: #0a1411;
+  background: #091218;
 }
 
 .chat-bubble {
@@ -1776,26 +1776,26 @@ const cadDocuments = computed(() =>
 .chat-bubble.user {
   margin-left: auto;
   background: #1d3028;
-  border: 1px solid #2a3a33;
+  border: 1px solid #243848;
 }
 
 .chat-bubble.assistant {
-  background: #101f1a;
-  border: 1px solid rgba(217, 255, 67, 0.28);
+  background: #0e1a22;
+  border: 1px solid rgba(30, 182, 255, 0.28);
 }
 
 .chat-bubble :deep(code),
 .chat-bubble :deep(pre) {
   font-family: var(--font-mono);
   color: #c9d3cd;
-  background: #0a1411;
+  background: #091218;
 }
 
 .source-link {
   background: none;
   border: 0;
   padding: 0;
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
   text-decoration: underline;
   cursor: pointer;
   text-align: left;
@@ -1826,9 +1826,9 @@ const cadDocuments = computed(() =>
 }
 
 .eoq-section-row td {
-  background: rgba(217, 255, 67, 0.1) !important;
-  border-top: 1px solid rgba(217, 255, 67, 0.28);
-  border-bottom: 1px solid rgba(217, 255, 67, 0.18);
+  background: rgba(30, 182, 255, 0.1) !important;
+  border-top: 1px solid rgba(30, 182, 255, 0.28);
+  border-bottom: 1px solid rgba(30, 182, 255, 0.18);
   padding-top: 10px !important;
   padding-bottom: 10px !important;
   vertical-align: middle;
@@ -1838,7 +1838,7 @@ const cadDocuments = computed(() =>
   font-family: var(--font-brand, inherit);
   font-weight: 700;
   font-size: 0.95rem;
-  color: var(--acid, #d9ff43);
+  color: var(--acid, #1eb6ff);
   letter-spacing: 0.02em;
 }
 

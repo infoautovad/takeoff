@@ -68,7 +68,7 @@ async function removeCase() {
             <div class="page-kicker mb-1">Stage 1</div>
             <h2 class="brand-font text-h6 mb-2">Analyze plan</h2>
             <p class="text-caption muted mb-3">
-              Upload PDF/DWG, Analyze with progress, then Generate Estimate Of Quantities.
+              Upload PDF/DWG and Analyze, or import an AutoVAD EOQ Excel from the user portal.
             </p>
             <v-chip size="small" :color="detail.has_autovad_eoq ? 'success' : 'default'" variant="tonal">
               {{ detail.has_autovad_eoq ? `${detail.autovad_item_count} EOQ items` : 'Not started' }}
@@ -122,11 +122,11 @@ async function removeCase() {
 .stage-card {
   cursor: pointer;
   transition: border-color 0.15s ease;
-  border: 1px solid rgba(217, 255, 67, 0.12);
+  border: 1px solid rgba(30, 182, 255, 0.12);
   min-height: 180px;
 }
 .stage-card:hover:not(.locked) {
-  border-color: rgba(217, 255, 67, 0.45);
+  border-color: rgba(30, 182, 255, 0.45);
 }
 .stage-card.locked {
   opacity: 0.5;

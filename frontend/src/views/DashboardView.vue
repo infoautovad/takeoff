@@ -518,10 +518,10 @@ function severityIcon(kind: string) {
   gap: 28px;
   padding: 28px 28px 26px;
   margin-bottom: 22px;
-  border-color: rgba(217, 255, 67, 0.22);
+  border-color: rgba(30, 182, 255, 0.22);
   background:
-    radial-gradient(circle at 88% 18%, rgba(217, 255, 67, 0.1), transparent 34%),
-    linear-gradient(145deg, #101f1a, #0b1512 70%);
+    radial-gradient(circle at 88% 18%, rgba(30, 182, 255, 0.1), transparent 34%),
+    linear-gradient(145deg, #0e1a22, #0a1218 70%);
 }
 
 .hero-title {
@@ -553,8 +553,8 @@ function severityIcon(kind: string) {
 }
 
 .readiness {
-  border: 1px solid #2a3a33;
-  background: rgba(7, 16, 14, 0.55);
+  border: 1px solid #243848;
+  background: rgba(6, 16, 24, 0.55);
   padding: 14px 16px;
 }
 
@@ -587,14 +587,14 @@ function severityIcon(kind: string) {
   display: block;
   height: 100%;
   background: var(--acid);
-  box-shadow: 0 0 10px rgba(217, 255, 67, 0.55);
+  box-shadow: 0 0 10px rgba(30, 182, 255, 0.55);
   transition: width 0.8s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .readiness small {
   font-family: var(--font-mono);
   font-size: 10px;
-  color: #9aa69f;
+  color: #9aa6b0;
 }
 
 .hero-cta {
@@ -607,7 +607,7 @@ function severityIcon(kind: string) {
   height: 220px;
   right: -40px;
   bottom: -80px;
-  border: 1px solid rgba(133, 255, 208, 0.14);
+  border: 1px solid rgba(30, 182, 255, 0.14);
   border-radius: 50%;
   pointer-events: none;
   animation: orbit 10s linear infinite;
@@ -617,7 +617,7 @@ function severityIcon(kind: string) {
   content: '';
   position: absolute;
   inset: 28px;
-  border: 1px dashed rgba(217, 255, 67, 0.2);
+  border: 1px dashed rgba(30, 182, 255, 0.2);
   border-radius: 50%;
 }
 
@@ -646,15 +646,15 @@ function severityIcon(kind: string) {
 .stat-card.hot,
 .stat-card:focus-visible {
   transform: translateY(-3px);
-  border-color: rgba(217, 255, 67, 0.45);
-  background: #12221c;
+  border-color: rgba(30, 182, 255, 0.45);
+  background: #12202a;
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.28);
   outline: none;
 }
 
 .stat-card.mint:hover,
 .stat-card.mint.hot {
-  border-color: rgba(133, 255, 208, 0.4);
+  border-color: rgba(30, 182, 255, 0.4);
 }
 
 .stat-card.warn:hover,
@@ -685,7 +685,7 @@ function severityIcon(kind: string) {
   font-size: 10px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #68756e;
+  color: #687586;
   display: flex;
   justify-content: space-between;
   gap: 8px;
@@ -712,7 +712,7 @@ function severityIcon(kind: string) {
 }
 
 .week-metric {
-  border-left: 1px solid #2a3a33;
+  border-left: 1px solid #243848;
   padding-left: 14px;
 }
 
@@ -729,7 +729,7 @@ function severityIcon(kind: string) {
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #748078;
+  color: #74808a;
 }
 
 .week-metric.alert b {
@@ -766,8 +766,8 @@ function severityIcon(kind: string) {
   gap: 12px;
   align-items: flex-start;
   text-align: left;
-  border: 1px solid #2a3a33;
-  background: #0d1814;
+  border: 1px solid #243848;
+  background: #0a141c;
   color: inherit;
   padding: 14px;
   cursor: pointer;
@@ -776,15 +776,15 @@ function severityIcon(kind: string) {
 
 .action-card:hover,
 .action-card:focus-visible {
-  border-color: rgba(217, 255, 67, 0.45);
-  background: #12221c;
+  border-color: rgba(30, 182, 255, 0.45);
+  background: #12202a;
   transform: translateY(-2px);
   outline: none;
 }
 
 .action-card.primary {
-  border-color: rgba(217, 255, 67, 0.35);
-  background: linear-gradient(145deg, rgba(217, 255, 67, 0.08), #0d1814 65%);
+  border-color: rgba(30, 182, 255, 0.35);
+  background: linear-gradient(145deg, rgba(30, 182, 255, 0.08), #0a141c 65%);
 }
 
 .action-card strong {
@@ -821,8 +821,8 @@ function severityIcon(kind: string) {
   gap: 12px;
   width: 100%;
   text-align: left;
-  border: 1px solid #24322c;
-  background: #0d1814;
+  border: 1px solid #1e2c38;
+  background: #0a141c;
   color: inherit;
   padding: 12px;
   cursor: pointer;
@@ -835,8 +835,8 @@ function severityIcon(kind: string) {
 .project-row:focus-visible,
 .activity-row:focus-visible,
 .attention-row:focus-visible {
-  border-color: rgba(217, 255, 67, 0.4);
-  background: #12221c;
+  border-color: rgba(30, 182, 255, 0.4);
+  background: #12202a;
   transform: translateX(2px);
   outline: none;
 }
@@ -862,8 +862,8 @@ function severityIcon(kind: string) {
   flex: 0 0 auto;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(217, 255, 67, 0.28);
-  background: rgba(217, 255, 67, 0.06);
+  border: 1px solid rgba(30, 182, 255, 0.28);
+  background: rgba(30, 182, 255, 0.06);
   color: var(--acid);
   font-family: var(--font-mono);
   font-size: 12px;
@@ -871,7 +871,7 @@ function severityIcon(kind: string) {
 }
 
 .project-mark.pinned {
-  box-shadow: 0 0 0 1px rgba(217, 255, 67, 0.2);
+  box-shadow: 0 0 0 1px rgba(30, 182, 255, 0.2);
 }
 
 .attention-row.error .attention-icon {
@@ -908,7 +908,7 @@ function severityIcon(kind: string) {
 .activity-body small,
 .attention-body small {
   display: block;
-  color: #748078;
+  color: #74808a;
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.03em;
@@ -927,7 +927,7 @@ function severityIcon(kind: string) {
 }
 
 .row-arrow {
-  color: #68756e;
+  color: #687586;
   flex: 0 0 auto;
 }
 
@@ -975,7 +975,7 @@ function severityIcon(kind: string) {
   .week-metric {
     border-left: 0;
     padding-left: 0;
-    border-top: 1px solid #2a3a33;
+    border-top: 1px solid #243848;
     padding-top: 10px;
   }
 }

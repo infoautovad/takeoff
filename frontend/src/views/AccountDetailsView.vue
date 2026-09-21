@@ -118,8 +118,8 @@ const pct = computed(() => creditsRemainingPct(user.value?.plan))
 }
 
 .panel {
-  border: 1px solid #24322c;
-  background: #0d1814;
+  border: 1px solid #1e2c38;
+  background: #0a141c;
   padding: 22px 22px 18px;
 }
 
@@ -139,7 +139,7 @@ dl > div {
   display: grid;
   gap: 4px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #1c2924;
+  border-bottom: 1px solid #1e2c38;
 }
 
 dl > div:last-child {
@@ -152,7 +152,7 @@ dt {
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #68756e;
+  color: #687586;
 }
 
 dd {
@@ -179,9 +179,9 @@ dd {
 }
 
 .status-pill.on {
-  border-color: rgba(217, 255, 67, 0.35);
+  border-color: rgba(30, 182, 255, 0.35);
   color: var(--acid);
-  background: rgba(217, 255, 67, 0.06);
+  background: rgba(30, 182, 255, 0.06);
 }
 
 .panel-actions {

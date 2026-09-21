@@ -288,7 +288,7 @@ onUnmounted(() => {
   <main class="app-shell">
     <nav class="topbar" aria-label="Primary navigation">
       <a class="brand" href="#top" aria-label="AutoVAD home">
-        <span class="brand-mark"><i /><i /><i /></span>
+        <img class="brand-mark" src="/brand/autovad-icon.png" alt="" width="40" height="40" />
         <span>AUTO<span>VAD</span></span>
       </a>
       <div class="nav-links">
@@ -845,7 +845,7 @@ onUnmounted(() => {
 
     <footer>
       <a class="brand" href="#top">
-        <span class="brand-mark"><i /><i /><i /></span>
+        <img class="brand-mark" src="/brand/autovad-icon.png" alt="" width="40" height="40" />
         <span>AUTO<span>VAD</span></span>
       </a>
       <p>More bids. Less counting. AI quantity intelligence for civil construction.</p>
@@ -872,7 +872,7 @@ onUnmounted(() => {
       <div class="signin-drawer-inner">
         <div class="signin-drawer-head">
           <div class="signin-brand">
-            <span class="signin-mark" aria-hidden="true"><i /><i /><i /></span>
+            <img class="signin-mark" src="/brand/autovad-icon.png" alt="" width="32" height="32" />
             <div>
               <div class="signin-kicker">AUTO<span>VAD</span> · ACCESS</div>
               <h2>Welcome back</h2>
@@ -950,7 +950,7 @@ onUnmounted(() => {
       <div class="signin-drawer-inner">
         <div class="signin-drawer-head">
           <div class="signin-brand">
-            <span class="signin-mark" aria-hidden="true"><i /><i /><i /></span>
+            <img class="signin-mark" src="/brand/autovad-icon.png" alt="" width="32" height="32" />
             <div>
               <div class="signin-kicker">AUTO<span>VAD</span> · ADMIN</div>
               <h2>Portal access</h2>
@@ -1007,8 +1007,8 @@ html.autovad-landing,
 html.autovad-landing body,
 html.autovad-landing .v-application,
 html.autovad-landing .v-application__wrap {
-  background: #07100e !important;
-  color: #f4f6ef;
+  background: #061018 !important;
+  color: #e8eef4;
 }
 html.autovad-landing .v-application {
   font-family: Arial, Helvetica, sans-serif !important;

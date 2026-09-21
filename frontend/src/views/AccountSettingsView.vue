@@ -122,8 +122,8 @@ try {
 }
 
 .panel {
-  border: 1px solid #24322c;
-  background: #0d1814;
+  border: 1px solid #1e2c38;
+  background: #0a141c;
   padding: 22px;
 }
 
@@ -142,7 +142,7 @@ try {
   gap: 20px;
   align-items: center;
   padding: 14px 0;
-  border-top: 1px solid #1c2924;
+  border-top: 1px solid #1e2c38;
   cursor: pointer;
 }
 
@@ -153,14 +153,14 @@ try {
 
 .toggle-row b {
   display: block;
-  color: #eaf0eb;
+  color: #e8eef4;
   font-size: 0.92rem;
 }
 
 .toggle-row small {
   display: block;
   margin-top: 4px;
-  color: #748078;
+  color: #74808a;
   font-size: 0.8rem;
   line-height: 1.45;
 }
@@ -179,16 +179,16 @@ try {
   font-size: 9px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #748078;
+  color: #74808a;
 }
 
 .field select {
   width: 100%;
   max-width: 280px;
   padding: 10px 12px;
-  border: 1px solid #2a3a33;
-  background: #0b1512;
-  color: #eaf0eb;
+  border: 1px solid #243848;
+  background: #0a1218;
+  color: #e8eef4;
   font: 13px var(--font-mono);
   text-transform: none;
   letter-spacing: 0;
@@ -204,7 +204,7 @@ try {
 .save-btn {
   border: 0;
   background: var(--acid);
-  color: #10170c;
+  color: #061018;
   padding: 12px 18px;
   font: 10px var(--font-mono);
   font-weight: 800;

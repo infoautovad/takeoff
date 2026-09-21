@@ -175,6 +175,7 @@ async function submit() {
       <div class="auth-visual-inner">
         <div>
           <div class="page-kicker">AutoVAD / Join</div>
+          <img class="auth-logo" src="/brand/autovad-icon.png" alt="AutoVAD" width="72" height="72" />
           <div class="brand-font auth-title mb-4">
             Join Auto<span>VAD</span>
           </div>
@@ -330,8 +331,8 @@ async function submit() {
   padding: 48px 4vw;
   border-right: 1px solid var(--line);
   background:
-    radial-gradient(circle at 75% 40%, rgba(72, 171, 135, 0.16), transparent 32%),
-    #07100e;
+    radial-gradient(circle at 75% 40%, rgba(30, 182, 255, 0.16), transparent 32%),
+    #061018;
 }
 
 .auth-visual-inner {
@@ -381,14 +382,24 @@ async function submit() {
   font-weight: 900;
   line-height: 0.95;
   letter-spacing: -0.06em;
+  color: var(--brand-silver);
+}
+
+.auth-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  display: block;
+  margin: 18px 0 16px;
+  filter: drop-shadow(0 0 14px rgba(80, 180, 255, 0.28));
 }
 
 .auth-title span {
-  color: var(--acid);
+  color: var(--brand-blue);
 }
 
 .auth-lede {
-  color: #aab4ad;
+  color: #aab4bc;
   font-size: 16px;
   line-height: 1.65;
   max-width: 420px;
@@ -398,14 +409,14 @@ async function submit() {
   display: grid;
   place-items: center;
   padding: 28px 20px;
-  background: #0a1411;
+  background: #091218;
   overflow: auto;
 }
 
 .auth-form {
   width: 100%;
   max-width: 980px;
-  border-color: rgba(217, 255, 67, 0.22);
+  border-color: rgba(30, 182, 255, 0.22);
   box-shadow: 0 25px 70px rgba(0, 0, 0, 0.35);
 }
 
@@ -421,7 +432,7 @@ async function submit() {
 .pw-checks li {
   font-size: 11px;
   font-family: var(--font-mono);
-  color: #7a8a82;
+  color: #7a8a94;
 }
 
 .pw-checks li.ok {
@@ -441,7 +452,7 @@ async function submit() {
   font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #d9ff43;
+  color: #1eb6ff;
   font-weight: 700;
 }
 
@@ -471,18 +482,18 @@ async function submit() {
 }
 
 .plan-card:hover {
-  border-color: rgba(217, 255, 67, 0.45);
+  border-color: rgba(30, 182, 255, 0.45);
   transform: translateY(-1px);
 }
 
 .plan-card.recommended {
-  background: #07100e;
-  border-color: rgba(217, 255, 67, 0.35);
+  background: #061018;
+  border-color: rgba(30, 182, 255, 0.35);
 }
 
 .plan-card.selected {
-  border-color: #d9ff43;
-  box-shadow: 0 0 0 1px rgba(217, 255, 67, 0.35);
+  border-color: #1eb6ff;
+  box-shadow: 0 0 0 1px rgba(30, 182, 255, 0.35);
 }
 
 .plan-badge {
@@ -493,8 +504,8 @@ async function submit() {
   font-family: var(--font-mono);
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  background: #d9ff43;
-  color: #07100e;
+  background: #1eb6ff;
+  color: #061018;
   font-weight: 800;
   padding: 3px 6px;
   border-radius: 3px;
@@ -523,7 +534,7 @@ async function submit() {
 }
 
 .plan-blurb {
-  color: #9aa69f;
+  color: #9aa6b0;
   font-size: 12px;
   line-height: 1.45;
   min-height: 52px;
@@ -540,7 +551,7 @@ async function submit() {
   position: relative;
   padding-left: 14px;
   font-size: 11.5px;
-  color: #c5d0c9;
+  color: #c5d0d8;
   margin-bottom: 6px;
   line-height: 1.35;
 }
@@ -553,7 +564,7 @@ async function submit() {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #48ab87;
+  background: #1eb6ff;
 }
 
 .plan-cta {
@@ -566,14 +577,14 @@ async function submit() {
   padding: 8px 6px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 6px;
-  color: #d9ff43;
+  color: #1eb6ff;
 }
 
 .plan-card.recommended .plan-cta,
 .plan-card.selected .plan-cta {
-  background: #d9ff43;
-  color: #07100e;
-  border-color: #d9ff43;
+  background: #1eb6ff;
+  color: #061018;
+  border-color: #1eb6ff;
 }
 
 a {

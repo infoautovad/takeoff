@@ -44,9 +44,7 @@ function goHome() {
 <template>
   <v-navigation-drawer permanent width="248" class="backend-nav" :border="0">
     <button type="button" class="brand-block" aria-label="AutoVAD home" @click="goHome">
-      <div class="brand-mark" aria-hidden="true">
-        <i /><i /><i />
-      </div>
+      <img class="brand-mark" src="/brand/autovad-icon.png" alt="" width="36" height="36" />
       <div>
         <div class="brand-name">Auto<span>VAD</span></div>
         <div class="brand-sub">Admin portal</div>
@@ -101,9 +99,9 @@ function goHome() {
 
 <style scoped>
 .backend-nav {
-  background: #07100e !important;
-  border-right: 1px solid rgba(217, 255, 67, 0.14) !important;
-  color: #eaf0eb;
+  background: #061018 !important;
+  border-right: 1px solid rgba(30, 182, 255, 0.14) !important;
+  color: #e8eef4;
 }
 .brand-block {
   display: flex;
@@ -118,62 +116,48 @@ function goHome() {
   width: calc(100% - 32px);
 }
 .brand-mark {
-  width: 34px;
-  height: 34px;
-  position: relative;
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
   flex-shrink: 0;
-}
-.brand-mark i {
-  position: absolute;
-  inset: 0;
-  border: 1.5px solid #d9ff43;
-  border-radius: 4px;
-  transform: rotate(12deg);
-}
-.brand-mark i:nth-child(2) {
-  transform: rotate(-8deg);
-  opacity: 0.55;
-}
-.brand-mark i:nth-child(3) {
-  transform: rotate(28deg);
-  opacity: 0.3;
+  display: block;
 }
 .brand-name {
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 1.15rem;
   letter-spacing: -0.03em;
-  color: #f4f6ef;
+  color: var(--brand-silver);
 }
 .brand-name span {
-  color: #d9ff43;
+  color: var(--brand-blue);
 }
 .brand-sub {
   font: 9px monospace;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7d8a82;
+  color: #7d8a94;
   margin-top: 2px;
 }
 .nav-kicker {
   font: 9px monospace;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #66756d;
+  color: #667586;
   padding: 18px 20px 6px;
 }
 .nav-list :deep(.v-list-item-title) {
   font-size: 13px !important;
 }
 .nav-list :deep(.v-list-item--active) {
-  background: rgba(217, 255, 67, 0.14) !important;
+  background: rgba(30, 182, 255, 0.14) !important;
 }
 .nav-list :deep(.v-list-item--active .v-list-item-title),
 .nav-list :deep(.v-list-item--active .v-list-item__prepend) {
-  color: #d9ff43 !important;
+  color: #1eb6ff !important;
 }
 .nav-footer {
   padding: 12px 14px 16px;
-  border-top: 1px solid rgba(217, 255, 67, 0.12);
+  border-top: 1px solid rgba(30, 182, 255, 0.12);
 }
 .account-card {
   display: flex;
@@ -189,8 +173,8 @@ function goHome() {
   width: 36px;
   height: 36px;
   border-radius: 50%;
-  background: #d9ff43;
-  color: #07100e;
+  background: #1eb6ff;
+  color: #061018;
   display: grid;
   place-items: center;
   font-weight: 700;
@@ -199,18 +183,18 @@ function goHome() {
 .account-name {
   font-size: 13px;
   font-weight: 600;
-  color: #f4f6ef;
+  color: #e8eef4;
 }
 .account-email {
   font-size: 10px;
-  color: #8a968e;
+  color: #8a969e;
   word-break: break-all;
 }
 .account-role {
   font: 8px monospace;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #d9ff43;
+  color: #1eb6ff;
   margin-top: 2px;
 }
 .signout-btn {
@@ -218,9 +202,9 @@ function goHome() {
   letter-spacing: 0.04em;
 }
 .backend-bar {
-  background: #0a1512 !important;
-  border-bottom: 1px solid rgba(217, 255, 67, 0.12) !important;
-  color: #eaf0eb;
+  background: #0a1218 !important;
+  border-bottom: 1px solid rgba(30, 182, 255, 0.12) !important;
+  color: #e8eef4;
 }
 .bar-copy {
   padding-left: 8px;
@@ -229,15 +213,15 @@ function goHome() {
   font: 9px monospace;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: #7d8a82;
+  color: #7d8a94;
 }
 .bar-title {
   font-family: Georgia, 'Times New Roman', serif;
   font-size: 1.05rem;
-  color: #f4f6ef;
+  color: #e8eef4;
 }
 .backend-main {
-  background: #07100e;
+  background: #061018;
 }
 .backend-content {
   min-height: calc(100vh - 64px);

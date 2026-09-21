@@ -511,9 +511,9 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
     headers = EOQ_EXPORT_HEADERS
     col_count = len(headers)
 
-    title_font = Font(name="Calibri", size=14, bold=True, color="D9FF43")
-    header_fill = PatternFill("solid", fgColor="0D1F19")
-    header_font = Font(color="D9FF43", bold=True)
+    title_font = Font(name="Calibri", size=14, bold=True, color="E8EEF4")
+    header_fill = PatternFill("solid", fgColor="061018")
+    header_font = Font(color="1EB6FF", bold=True)
     section_fill = PatternFill("solid", fgColor="D9E2F3")
     section_font = Font(name="Calibri", bold=True, size=11, color="1F4E79")
     thin = Side(style="thin", color="000000")
@@ -522,7 +522,7 @@ def export_eoq_excel(eoq: EOQ, *, utilities_detail: dict | None = None) -> bytes
     ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=col_count)
     title_cell = ws.cell(1, 1, "ESTIMATE OF QUANTITIES")
     title_cell.font = title_font
-    title_cell.fill = PatternFill("solid", fgColor="0D1F19")
+    title_cell.fill = PatternFill("solid", fgColor="061018")
     title_cell.alignment = Alignment(horizontal="center", vertical="center")
     ws.row_dimensions[1].height = 26
 

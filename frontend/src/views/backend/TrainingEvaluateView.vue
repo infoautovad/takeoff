@@ -672,7 +672,7 @@ async function runEvaluate() {
 .bar-track {
   position: relative;
   height: 8px;
-  background: #1a2b24;
+  background: #12202a;
   overflow: hidden;
   border-radius: 2px;
 }
@@ -693,7 +693,7 @@ async function runEvaluate() {
   opacity: 0.95;
 }
 .bar-track i.exp {
-  background: rgba(217, 255, 67, 0.22);
+  background: rgba(30, 182, 255, 0.22);
 }
 .cat-name {
   max-width: 55%;
@@ -714,7 +714,7 @@ async function runEvaluate() {
 }
 .donut-bg {
   fill: none;
-  stroke: #1a2b24;
+  stroke: #12202a;
   stroke-width: 3.2;
 }
 .donut-seg {
@@ -731,7 +731,7 @@ async function runEvaluate() {
 }
 .donut-label b {
   font-size: 1.35rem;
-  color: #d9ff43;
+  color: #1eb6ff;
 }
 .table-scroll {
   max-height: 520px;
@@ -743,7 +743,7 @@ async function runEvaluate() {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: #0c1612;
+  background: #0a141c;
   white-space: nowrap;
   font-size: 0.7rem;
   letter-spacing: 0.04em;
@@ -763,7 +763,7 @@ async function runEvaluate() {
   line-height: 1.45;
   padding: 14px;
   border-radius: 10px;
-  border: 1px solid rgba(217, 255, 67, 0.18);
+  border: 1px solid rgba(30, 182, 255, 0.18);
   background: rgba(0, 0, 0, 0.28);
   max-height: 420px;
   overflow: auto;

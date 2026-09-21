@@ -250,9 +250,9 @@ async function uploadExpected() {
 .upload-modal {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(165deg, #12211c 0%, #0a1512 55%, #07110e 100%);
-  border: 1px solid rgba(217, 255, 67, 0.28);
-  color: #eaf0eb;
+  background: linear-gradient(165deg, #12202a 0%, #0a1218 55%, #061018 100%);
+  border: 1px solid rgba(30, 182, 255, 0.28);
+  color: #e8eef4;
   padding: 26px 26px 22px;
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.55);
 }
@@ -263,7 +263,7 @@ async function uploadExpected() {
   right: -50px;
   top: -70px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(217, 255, 67, 0.18), transparent 68%);
+  background: radial-gradient(circle, rgba(30, 182, 255, 0.18), transparent 68%);
   pointer-events: none;
 }
 .upload-meter-top {
@@ -279,21 +279,21 @@ async function uploadExpected() {
   color: rgba(234, 240, 235, 0.55);
 }
 .upload-meter-top b {
-  color: #d9ff43;
+  color: #1eb6ff;
   font-size: 1.35rem;
   letter-spacing: -0.03em;
 }
 .upload-track {
   position: relative;
   height: 8px;
-  background: #1a2b24;
+  background: #12202a;
   overflow: hidden;
 }
 .upload-track i {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #85ffd0, #d9ff43);
-  box-shadow: 0 0 14px rgba(217, 255, 67, 0.45);
+  background: linear-gradient(90deg, #85ffd0, #1eb6ff);
+  box-shadow: 0 0 14px rgba(30, 182, 255, 0.45);
   transition: width 0.35s ease;
 }
 </style>

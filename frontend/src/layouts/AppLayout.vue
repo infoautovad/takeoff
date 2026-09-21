@@ -102,9 +102,7 @@ function logout() {
 <template>
   <v-navigation-drawer permanent width="248" class="app-nav" :border="0">
     <router-link to="/" class="brand-block" aria-label="AutoVAD home">
-      <div class="brand-mark" aria-hidden="true">
-        <i /><i /><i />
-      </div>
+      <img class="brand-mark" src="/brand/autovad-icon.png" alt="" width="36" height="36" />
       <div>
         <div class="brand-name">Auto<span>VAD</span></div>
         <div class="brand-sub">Civil intelligence</div>
@@ -195,9 +193,9 @@ function logout() {
 
 <style scoped>
 .app-nav {
-  background: #0b1512 !important;
-  color: #eaf0eb;
-  border-right: 1px solid #24322c !important;
+  background: #0a1218 !important;
+  color: #e8eef4;
+  border-right: 1px solid #1e2c38 !important;
 }
 
 .app-nav :deep(.v-list-item-title) {
@@ -205,19 +203,19 @@ function logout() {
   font-size: 11px !important;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #9aa69f;
+  color: #9aa6b0;
 }
 
 .app-nav :deep(.v-list-item__prepend) {
-  color: #718078;
+  color: #71808a;
 }
 
 .app-nav :deep(.v-list-item:hover) {
-  background: #12221c !important;
+  background: #12202a !important;
 }
 
 .app-nav :deep(.v-list-item--active) {
-  background: #0e1d18 !important;
+  background: #0d1a22 !important;
   box-shadow: inset 2px 0 var(--acid);
 }
 
@@ -231,7 +229,7 @@ function logout() {
   gap: 12px;
   align-items: center;
   padding: 22px 18px 18px;
-  border-bottom: 1px solid #24322c;
+  border-bottom: 1px solid #1e2c38;
   text-decoration: none;
   color: inherit;
   cursor: pointer;
@@ -239,38 +237,27 @@ function logout() {
 }
 
 .brand-block:hover {
-  background: rgba(217, 255, 67, 0.04);
+  background: rgba(30, 182, 255, 0.04);
 }
 
 .brand-mark {
-  width: 29px;
-  height: 27px;
-  display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  transform: skew(-12deg);
-}
-
-.brand-mark i {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+  flex-shrink: 0;
   display: block;
-  width: 7px;
-  background: var(--acid);
 }
-
-.brand-mark i:nth-child(1) { height: 16px; }
-.brand-mark i:nth-child(2) { height: 25px; }
-.brand-mark i:nth-child(3) { height: 20px; }
 
 .brand-name {
   font-weight: 900;
   letter-spacing: -0.03em;
   font-size: 18px;
-  color: #fff;
+  color: var(--brand-silver);
   line-height: 1;
 }
 
 .brand-name span {
-  color: var(--acid);
+  color: var(--brand-blue);
 }
 
 .brand-sub {
@@ -279,7 +266,7 @@ function logout() {
   font-size: 9px;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #68756e;
+  color: #687586;
 }
 
 .nav-kicker {
@@ -304,17 +291,17 @@ function logout() {
   flex-direction: column;
   gap: 10px;
   padding: 12px 10px;
-  border: 1px solid #2a3a33;
-  background: #0d1814;
-  color: #eef4ef;
+  border: 1px solid #243848;
+  background: #0a141c;
+  color: #e8eef4;
   text-align: left;
   cursor: pointer;
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 
 .account-footer-card:hover {
-  border-color: rgba(217, 255, 67, 0.35);
-  background: #101f1a;
+  border-color: rgba(30, 182, 255, 0.35);
+  background: #0e1a22;
 }
 
 .account-footer-top {
@@ -345,7 +332,7 @@ function logout() {
   font-style: normal;
   font-family: var(--font-mono);
   font-size: 10px;
-  color: #748078;
+  color: #74808a;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -361,8 +348,8 @@ function logout() {
   height: 28px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(217, 255, 67, 0.45);
-  background: rgba(217, 255, 67, 0.08);
+  border: 1px solid rgba(30, 182, 255, 0.45);
+  background: rgba(30, 182, 255, 0.08);
   color: var(--acid);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -420,13 +407,13 @@ function logout() {
   display: block;
   height: 100%;
   background: var(--acid);
-  box-shadow: 0 0 6px rgba(217, 255, 67, 0.6);
+  box-shadow: 0 0 6px rgba(30, 182, 255, 0.6);
 }
 
 .app-topbar {
-  background: #0b1512 !important;
-  border-bottom: 1px solid #24322c !important;
-  color: #eaf0eb;
+  background: #0a1218 !important;
+  border-bottom: 1px solid #1e2c38 !important;
+  color: #e8eef4;
 }
 
 .topbar-copy {
@@ -449,15 +436,15 @@ function logout() {
 }
 
 .notify-btn {
-  color: #9aa69f !important;
+  color: #9aa6b0 !important;
 }
 
 .notify-card {
-  background: #101f1a !important;
+  background: #0e1a22 !important;
 }
 
 .unread {
-  background: rgba(217, 255, 67, 0.06);
+  background: rgba(30, 182, 255, 0.06);
 }
 
 .app-main {

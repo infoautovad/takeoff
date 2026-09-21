@@ -117,7 +117,7 @@ const costDonutStops = computed(() => {
   const rows = costs.value?.by_project || []
   const total = rows.reduce((s, r) => s + r.amount, 0) || 1
   let cursor = 0
-  const colors = ['#d9ff43', '#85ffd0', '#ffc36a', '#8eb6ff', '#ff8b6b', '#c4b5fd']
+  const colors = ['#1eb6ff', '#85ffd0', '#ffc36a', '#8eb6ff', '#ff8b6b', '#c4b5fd']
   return rows.slice(0, 6).map((row, i) => {
     const start = cursor
     const share = (row.amount / total) * 100
@@ -833,7 +833,7 @@ onMounted(async () => {
 .kpi-card {
   text-align: left;
   border: 1px solid var(--cm-line, #24332c);
-  background: linear-gradient(160deg, #12211c, #0d1814);
+  background: linear-gradient(160deg, #12202a, #0a141c);
   border-radius: 0;
   padding: 18px 18px 14px;
   cursor: pointer;
@@ -844,12 +844,12 @@ onMounted(async () => {
 .kpi-card:hover,
 .kpi-card.hot {
   transform: translateY(-2px);
-  border-color: rgba(217, 255, 67, 0.45);
+  border-color: rgba(30, 182, 255, 0.45);
   background: #15261f;
 }
 
 .kpi-card.acid .stat-value {
-  color: #d9ff43;
+  color: #1eb6ff;
 }
 .kpi-card.mint .stat-value {
   color: #85ffd0;
@@ -893,7 +893,7 @@ onMounted(async () => {
   font-weight: 700;
 }
 .balance-value.cut {
-  color: #d9ff43;
+  color: #1eb6ff;
 }
 .balance-value.fill {
   color: #ffc36a;
@@ -916,12 +916,12 @@ onMounted(async () => {
   transition: width 0.55s cubic-bezier(0.22, 1, 0.36, 1);
 }
 .bar-fill.acid {
-  background: var(--acid, #d9ff43);
-  box-shadow: 0 0 9px rgba(217, 255, 67, 0.35);
+  background: var(--acid, #1eb6ff);
+  box-shadow: 0 0 9px rgba(30, 182, 255, 0.35);
 }
 .bar-fill.mint {
   background: #85ffd0;
-  box-shadow: 0 0 9px rgba(133, 255, 208, 0.3);
+  box-shadow: 0 0 9px rgba(30, 182, 255, 0.3);
 }
 
 .material-bar {
@@ -939,9 +939,9 @@ onMounted(async () => {
   right: 0;
   top: -8px;
   transform: translateY(-100%);
-  background: #0c1713;
-  border: 1px solid rgba(217, 255, 67, 0.35);
-  color: #eaf0eb;
+  background: #0a141c;
+  border: 1px solid rgba(30, 182, 255, 0.35);
+  color: #e8eef4;
   font-size: 0.72rem;
   padding: 6px 8px;
   white-space: nowrap;
@@ -968,7 +968,7 @@ onMounted(async () => {
   width: 92px;
   height: 92px;
   border-radius: 50%;
-  background: #101f1a;
+  background: #0e1a22;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1001,7 +1001,7 @@ onMounted(async () => {
   border-radius: 0;
 }
 .cost-row.hot {
-  background: rgba(217, 255, 67, 0.05);
+  background: rgba(30, 182, 255, 0.05);
 }
 .swatch {
   width: 10px;

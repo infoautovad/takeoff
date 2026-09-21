@@ -46,12 +46,35 @@ def _model_name() -> str:
     return (get_settings().openai_model or "gpt-5.6-terra").strip()
 
 
+_UNSUPPORTED_PARAM_RE = re.compile(r"unsupported parameter:\s*'([^']+)'", re.I)
+
+
 def _supports_custom_temperature(model: str) -> bool:
-    """Some GPT-6 family models only allow the default temperature."""
-    low = model.lower()
-    if "gpt-6" in low or "astra" in low or "o1" in low or "o3" in low or "o4" in low:
-        return False
-    return True
+    """GPT-5.6 Terra and similar models only allow the default temperature."""
+    low = (model or "").lower()
+    return not any(token in low for token in ("gpt-5", "gpt-6", "terra", "astra", "o1", "o3", "o4"))
+
+
+def _unsupported_param_name(exc: BaseException) -> str | None:
+    match = _UNSUPPORTED_PARAM_RE.search(str(exc))
+    return match.group(1) if match else None
+
+
+def _create_dropping_unsupported(create, kwargs: dict[str, Any]):
+    """Call an OpenAI create() and retry without any parameter the model rejects."""
+    payload = dict(kwargs)
+    last_exc: Exception | None = None
+    for _ in range(4):
+        try:
+            return create(**payload)
+        except Exception as exc:
+            last_exc = exc
+            name = _unsupported_param_name(exc)
+            if name and name in payload:
+                payload.pop(name, None)
+                continue
+            raise
+    raise last_exc
 
 
 def ask_openai_json(system: str, user: str, *, temperature: float = 0.1) -> dict[str, Any]:
@@ -126,7 +149,7 @@ def _ask_openai(
             if use_temp:
                 kwargs["temperature"] = temperature
             kwargs["max_output_tokens"] = 16384
-            response = client.responses.create(**kwargs)
+            response = _create_dropping_unsupported(client.responses.create, kwargs)
             text = getattr(response, "output_text", None) or _responses_text(response)
             if text and text.strip():
                 return text
@@ -187,7 +210,7 @@ def _ask_openai(
             kwargs["temperature"] = temperature
         if "json" in system.lower() or "JSON" in user_text:
             kwargs["response_format"] = {"type": "json_object"}
-        completion = client.chat.completions.create(**kwargs)
+        completion = _create_dropping_unsupported(client.chat.completions.create, kwargs)
         content = completion.choices[0].message.content or ""
         if content.strip():
             return content

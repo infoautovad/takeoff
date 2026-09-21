@@ -21,6 +21,7 @@ async function submit() {
     <div class="auth-visual">
       <div class="auth-visual-inner">
         <div class="page-kicker">AutoVAD / Access</div>
+        <img class="auth-logo" src="/brand/autovad-icon.png" alt="AutoVAD" width="72" height="72" />
         <div class="brand-font auth-title mb-4">
           Auto<span>VAD</span>
         </div>
@@ -83,8 +84,8 @@ async function submit() {
   padding: 48px 4.5vw;
   border-right: 1px solid var(--line);
   background:
-    radial-gradient(circle at 75% 40%, rgba(72, 171, 135, 0.16), transparent 32%),
-    #07100e;
+    radial-gradient(circle at 75% 40%, rgba(30, 182, 255, 0.16), transparent 32%),
+    #061018;
 }
 
 .auth-title {
@@ -92,14 +93,24 @@ async function submit() {
   font-weight: 900;
   line-height: 0.95;
   letter-spacing: -0.06em;
+  color: var(--brand-silver);
+}
+
+.auth-logo {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  display: block;
+  margin: 18px 0 16px;
+  filter: drop-shadow(0 0 14px rgba(80, 180, 255, 0.28));
 }
 
 .auth-title span {
-  color: var(--acid);
+  color: var(--brand-blue);
 }
 
 .auth-lede {
-  color: #aab4ad;
+  color: #aab4bc;
   font-size: 16px;
   line-height: 1.65;
   max-width: 420px;
@@ -108,8 +119,8 @@ async function submit() {
 .flow-steps {
   display: inline-block;
   padding: 12px 14px;
-  border: 1px solid rgba(217, 255, 67, 0.35);
-  background: rgba(217, 255, 67, 0.04);
+  border: 1px solid rgba(30, 182, 255, 0.35);
+  background: rgba(30, 182, 255, 0.04);
   font-family: var(--font-mono);
   font-size: 10px;
   letter-spacing: 0.06em;
@@ -121,13 +132,13 @@ async function submit() {
   display: grid;
   place-items: center;
   padding: 32px;
-  background: #0a1411;
+  background: #091218;
 }
 
 .auth-form {
   width: 100%;
   max-width: 440px;
-  border-color: rgba(217, 255, 67, 0.22);
+  border-color: rgba(30, 182, 255, 0.22);
   box-shadow: 0 25px 70px rgba(0, 0, 0, 0.35);
 }
 

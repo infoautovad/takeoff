@@ -131,6 +131,10 @@ def _migrate_sqlite() -> None:
             alters.append("ALTER TABLE training_cases ADD COLUMN actual_notes TEXT")
         if "analyzed_at" not in cols:
             alters.append("ALTER TABLE training_cases ADD COLUMN analyzed_at DATETIME")
+        if "actual_filename" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN actual_filename VARCHAR(512)")
+        if "actual_storage_key" not in cols:
+            alters.append("ALTER TABLE training_cases ADD COLUMN actual_storage_key VARCHAR(1024)")
         if alters:
             with engine.begin() as conn:
                 for stmt in alters:

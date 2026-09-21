@@ -105,8 +105,8 @@ function goProjects() {
 }
 
 .hero-panel {
-  border: 1px solid rgba(217, 255, 67, 0.28);
-  background: linear-gradient(145deg, rgba(217, 255, 67, 0.08), #0d1814 55%);
+  border: 1px solid rgba(30, 182, 255, 0.28);
+  background: linear-gradient(145deg, rgba(30, 182, 255, 0.08), #0a141c 55%);
   padding: 24px;
   margin-bottom: 14px;
 }
@@ -116,7 +116,7 @@ function goProjects() {
   font-family: var(--font-mono);
   font-size: 8px;
   letter-spacing: 0.1em;
-  color: #748078;
+  color: #74808a;
 }
 
 .hero-panel strong {
@@ -147,7 +147,7 @@ function goProjects() {
   display: block;
   height: 100%;
   background: var(--acid);
-  box-shadow: 0 0 8px rgba(217, 255, 67, 0.55);
+  box-shadow: 0 0 8px rgba(30, 182, 255, 0.55);
 }
 
 .hero-actions {
@@ -170,7 +170,7 @@ function goProjects() {
 
 .primary {
   background: var(--acid);
-  color: #10170c;
+  color: #061018;
 }
 
 .secondary {
@@ -186,8 +186,8 @@ function goProjects() {
 }
 
 .panel {
-  border: 1px solid #24322c;
-  background: #0d1814;
+  border: 1px solid #1e2c38;
+  background: #0a141c;
   padding: 22px;
 }
 
@@ -218,7 +218,7 @@ dl > div {
   display: grid;
   gap: 4px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #1c2924;
+  border-bottom: 1px solid #1e2c38;
 }
 
 dl > div:last-child {
@@ -231,7 +231,7 @@ dt {
   font-size: 8px;
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #68756e;
+  color: #687586;
 }
 
 dd {

@@ -47,11 +47,13 @@ class TrainingCase(Base):
     expected_storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Parsed expected / original items JSON: { "items": [ { description, unit, quantity, ... } ] }
     expected_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Stage 1: AutoVAD Estimate Of Quantities from the sample plan
+    # Stage 1: AutoVAD Estimate Of Quantities from the sample plan (or imported user-portal Excel)
     actual_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     actual_engine: Mapped[str | None] = mapped_column(String(64), nullable=True)
     actual_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    actual_filename: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    actual_storage_key: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     # Optional bid catalog for matcher training: list of { item_code, description, unit }
     bid_catalog_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)

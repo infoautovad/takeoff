@@ -107,10 +107,10 @@ async function clearAll() {
 }
 
 .empty {
-  border: 1px dashed #2a3a33;
+  border: 1px dashed #243848;
   padding: 36px 20px;
   text-align: center;
-  color: #748078;
+  color: #74808a;
   font-family: var(--font-mono);
   font-size: 11px;
 }
@@ -123,8 +123,8 @@ async function clearAll() {
 .note {
   width: 100%;
   text-align: left;
-  border: 1px solid #24322c;
-  background: #0d1814;
+  border: 1px solid #1e2c38;
+  background: #0a141c;
   padding: 16px 18px;
   color: inherit;
   cursor: pointer;
@@ -135,8 +135,8 @@ async function clearAll() {
 }
 
 .note.unread {
-  border-color: rgba(217, 255, 67, 0.28);
-  background: rgba(217, 255, 67, 0.04);
+  border-color: rgba(30, 182, 255, 0.28);
+  background: rgba(30, 182, 255, 0.04);
 }
 
 .note-top {
@@ -153,7 +153,7 @@ async function clearAll() {
 .note-top time {
   font-family: var(--font-mono);
   font-size: 9px;
-  color: #68756e;
+  color: #687586;
   white-space: nowrap;
 }
 

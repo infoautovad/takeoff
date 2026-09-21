@@ -13,6 +13,8 @@ export interface TrainingCaseSummary {
   autovad_item_count?: number
   actual_engine?: string | null
   actual_notes?: string | null
+  actual_filename?: string | null
+  autovad_source?: 'analyze' | 'imported_excel' | null
   analyzed_at?: string | null
   has_expected: boolean
   expected_filename?: string | null
@@ -125,6 +127,32 @@ export async function uploadExpectedFile(
   const form = new FormData()
   form.append('file', file)
   const { data } = await api.post<TrainingCaseDetail>(`/training/cases/${caseId}/expected`, form, {
+    timeout: NO_HTTP_TIMEOUT,
+    maxBodyLength: Infinity,
+    maxContentLength: Infinity,
+    onUploadProgress: (event) => {
+      if (!onProgress) return
+      if (typeof event.progress === 'number') {
+        onProgress(Math.min(99, Math.round(event.progress * 100)))
+        return
+      }
+      if (event.total) {
+        onProgress(Math.min(99, Math.round((event.loaded / event.total) * 100)))
+      }
+    },
+  })
+  onProgress?.(100)
+  return data
+}
+
+export async function uploadAutovadEoqFile(
+  caseId: number,
+  file: File,
+  onProgress?: (percent: number) => void,
+): Promise<TrainingCaseDetail> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<TrainingCaseDetail>(`/training/cases/${caseId}/autovad-eoq`, form, {
     timeout: NO_HTTP_TIMEOUT,
     maxBodyLength: Infinity,
     maxContentLength: Infinity,

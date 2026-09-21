@@ -87,7 +87,7 @@ function go(path: string, locked = false) {
   padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #8a968e;
+  color: #8a969e;
   background: transparent;
   cursor: pointer;
 }
@@ -95,13 +95,13 @@ function go(path: string, locked = false) {
   cursor: not-allowed;
 }
 .stage-pill.active {
-  border-color: rgba(217, 255, 67, 0.55);
-  color: #d9ff43;
+  border-color: rgba(30, 182, 255, 0.55);
+  color: #1eb6ff;
 }
 .stage-pill.done:not(.active) {
-  border-color: rgba(120, 200, 140, 0.45);
-  color: #9fdfb0;
-  background: rgba(120, 200, 140, 0.08);
+  border-color: rgba(122, 212, 255, 0.45);
+  color: #7ad4ff;
+  background: rgba(30, 182, 255, 0.08);
 }
 .stage-pill.locked {
   opacity: 0.45;

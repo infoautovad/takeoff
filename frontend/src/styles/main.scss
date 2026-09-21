@@ -1,23 +1,25 @@
 :root {
-  --ink: #07100e;
-  --paper: #f3f5ed;
-  --acid: #d9ff43;
-  --mint: #85ffd0;
-  --muted: #a8b0a9;
+  --ink: #061018;
+  --paper: #eef2f6;
+  --acid: #1eb6ff;
+  --mint: #7ad4ff;
+  --brand-silver: #e8eef4;
+  --brand-blue: #1eb6ff;
+  --muted: #a8b0b8;
   --line: rgba(255, 255, 255, 0.12);
-  --panel: #101f1a;
-  --panel-2: #0d1814;
-  --panel-border: #2a3a33;
-  --text: #eaf0eb;
-  --text-dim: #8e9b94;
+  --panel: #0e1a22;
+  --panel-2: #0a141c;
+  --panel-border: #243848;
+  --text: #e8eef4;
+  --text-dim: #8e9aa6;
   --cm-bg: var(--ink);
   --cm-ink: var(--text);
   --cm-slate: var(--text-dim);
   --cm-line: var(--panel-border);
-  --cm-navy: #0d1814;
+  --cm-navy: #0a141c;
   --cm-steel: var(--mint);
   --cm-sand: var(--acid);
-  --cm-mist: rgba(217, 255, 67, 0.08);
+  --cm-mist: rgba(30, 182, 255, 0.08);
   --font-display: Arial, Helvetica, sans-serif;
   --font-body: Arial, Helvetica, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -188,7 +190,7 @@ h4,
 }
 
 .v-dialog > .v-overlay__content > .v-card {
-  border: 1px solid rgba(217, 255, 67, 0.28);
+  border: 1px solid rgba(30, 182, 255, 0.28);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
 }
 
@@ -233,9 +235,9 @@ a {
 
 .v-file-input .v-chip,
 .v-autocomplete .v-chip {
-  background: #15231e !important;
+  background: #132028 !important;
   color: var(--acid) !important;
-  border: 1px solid rgba(217, 255, 67, 0.28);
+  border: 1px solid rgba(30, 182, 255, 0.28);
 }
 
 .v-expansion-panels,
@@ -258,7 +260,7 @@ a {
 }
 
 .v-pagination .v-btn {
-  background: #12221c !important;
+  background: #12202a !important;
 }
 
 .v-selection-control__input > .v-icon {
@@ -299,14 +301,14 @@ a {
 code {
   font-family: var(--font-mono);
   color: var(--acid);
-  background: rgba(217, 255, 67, 0.08);
+  background: rgba(30, 182, 255, 0.08);
   padding: 1px 5px;
 }
 
 pre {
   font-family: var(--font-mono);
   color: #c9d3cd;
-  background: #0a1411;
+  background: #091218;
   border: 1px solid var(--panel-border);
   padding: 12px;
   overflow: auto;
@@ -318,7 +320,7 @@ pre {
 
 .v-btn--variant-outlined.text-primary,
 .v-btn.text-primary.v-btn--variant-outlined {
-  border-color: rgba(217, 255, 67, 0.45) !important;
+  border-color: rgba(30, 182, 255, 0.45) !important;
   color: var(--acid) !important;
 }
 

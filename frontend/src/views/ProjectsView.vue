@@ -559,9 +559,9 @@ function locationLine(project: Project) {
 }
 
 .project-card:hover {
-  border-color: rgba(217, 255, 67, 0.45);
+  border-color: rgba(30, 182, 255, 0.45);
   transform: translateY(-2px);
-  background: #12221c;
+  background: #12202a;
 }
 
 .project-desc {
@@ -599,7 +599,7 @@ function locationLine(project: Project) {
 }
 
 .table-row:hover {
-  background: rgba(217, 255, 67, 0.06);
+  background: rgba(30, 182, 255, 0.06);
 }
 
 .country-locked :deep(.v-field) {
@@ -608,8 +608,8 @@ function locationLine(project: Project) {
 
 .country-locked :deep(.v-field__input),
 .country-locked :deep(input) {
-  color: #eaf0eb !important;
-  -webkit-text-fill-color: #eaf0eb !important;
+  color: #e8eef4 !important;
+  -webkit-text-fill-color: #e8eef4 !important;
   opacity: 1 !important;
   font-weight: 700;
 }

@@ -198,6 +198,31 @@ def put_bid_catalog(
     return svc.case_to_dict(case, include_runs=True)
 
 
+@router.post("/cases/{case_id}/autovad-eoq")
+async def upload_autovad_eoq(
+    case_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_admin),
+) -> dict:
+    """Alternate Stage 1: import AutoVAD EOQ Excel from the user portal (skip re-analyze)."""
+    case = svc.get_case(db, case_id)
+    if not case:
+        raise HTTPException(status_code=404, detail="Training case not found")
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Empty file")
+    try:
+        case = await svc.save_autovad_eoq_file(db, case, filename=file.filename, data=data)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Could not parse AutoVAD EOQ file: {exc}") from exc
+    return svc.case_to_dict(case, include_runs=True)
+
+
 @router.post("/cases/{case_id}/analyze")
 def analyze_case(
     case_id: int,

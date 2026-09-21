@@ -88,7 +88,7 @@ const currentText = computed(() => meta.value?.text_pages?.find((p) => p.page ==
 <style scoped>
 .viewer-frame {
   min-height: 480px;
-  background: #0a1411;
+  background: #091218;
 }
 .page-image {
   width: 100%;
@@ -106,7 +106,7 @@ const currentText = computed(() => meta.value?.text_pages?.find((p) => p.page ==
   overflow: auto;
   margin: 0;
   padding: 12px;
-  background: #0a1411;
+  background: #091218;
   border: 1px solid var(--panel-border);
 }
 </style>
