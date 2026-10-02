@@ -19,7 +19,22 @@ def _bid_table(*rows: list[str]) -> dict:
     return {"page": 1, "rows": [header, *rows]}
 
 
-def test_drop_incidental_child_but_keep_named_pay_item():
+def test_standard_plate_storm_bedding_is_dropped_even_if_transcribed():
+    from app.services.incidental import is_standard_plate_bedding, should_drop_incidental_item
+
+    row = {
+        "description": 'Bedding Material - 12" pipe',
+        "unit": "TON/LFT",
+        "quantity": 0.14,
+        "table_transcribed": True,
+        "schedule_authoritative": True,
+        "source_reference": "Bedding and Backfill for RCP Type B Installation, Quantity Estimate Table for Bedding Material",
+        "calculation_method": "Copied from printed Quantity Estimate Table.",
+    }
+    assert is_standard_plate_bedding(row)
+    assert should_drop_incidental_item(row, scheduled=True)
+    result = _finalize_analysis({"items": [row]})
+    assert not result["items"]
     assert should_drop_incidental_item(
         {
             "description": "Sand Bedding (incidental to watermain)",
@@ -88,6 +103,23 @@ def test_utility_labels_do_not_take_off_incidental_work():
     assert not any("valve" in d.lower() for d in by_desc)
     assert not any("bedding" in d.lower() for d in by_desc)
     assert not any("bend" in d.lower() or "fitting" in d.lower() for d in by_desc)
+
+
+def test_utility_labels_keep_quantified_fittings_and_skip_bare_bends():
+    text = (
+        '8" WATER MAIN 245 LF\n'
+        '8" BEND 4 EA\n'
+        '6" TEE\n'
+        "Water Main Testing 1 EA\n"
+        '12" RCP 37 LF\n'
+    )
+    items = extract_utility_label_items(text, filename="I.1.pdf", document_id=1)
+    by_desc = {str(i["description"]): i for i in items}
+    assert by_desc["8-Inch Water Main"]["quantity"] == 245
+    assert by_desc["8-Inch Water Bend / Elbow"]["quantity"] == 4
+    assert not any("tee" in d.lower() for d in by_desc)
+    assert by_desc["Water Main Testing"]["quantity"] == 1
+    assert by_desc["12-Inch RCP Storm Sewer"]["quantity"] == 37
 
 
 def test_heuristic_skips_incidental_excavation_quantity():

@@ -121,11 +121,11 @@ _AGENCY_BID_NO_RE = re.compile(r"^\s*(?:special|\d{1,4}\.\d{2,4}[a-z]?)\s*$", re
 
 _PLAN_DEVICE_HINTS = (
     "graphic count",
-    "symbol",
-    "symbols",
+    "channelizer symbol",
+    "from drawing symbol",
+    "graphic symbol",
     "project total",
     "itemized table",
-    "itemized list",
     "mutcd ref",
     "consolidated",
     "in²",
@@ -325,6 +325,9 @@ def is_distinct_traffic_pay_item(item: dict[str, Any]) -> bool:
 def is_plan_device_takeoff(item: dict[str, Any]) -> bool:
     """F-sheet device tables, graphic symbol counts, MUTCD 30×30 rollups — not bid rows."""
     blob = _evidence_blob(item)
+    if re.search(r"itemized\s+list\s+for\s+traffic\s+control\s+bid", blob):
+        if is_distinct_traffic_pay_item(item) or is_generic_traffic_control_signing(item):
+            return False
     return any(h in blob for h in _PLAN_DEVICE_HINTS)
 
 

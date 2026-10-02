@@ -17,6 +17,7 @@ from app.services.extractors import ExtractedContent
 from app.services.incidental import (
     description_is_incidental_child,
     extraction_should_skip,
+    is_standard_plate_bedding,
     quantity_inflated_by_incidentals,
     should_drop_incidental_item,
 )
@@ -81,28 +82,42 @@ ITEM_ALIASES = {
 
 # Shared accuracy rules for text + vision takeoff (Training Lab Test 1/2 failure modes).
 TAKEOFF_ACCURACY_RULES = """
-SOURCE OF TRUTH (strict — follow in order):
-1. Estimate Of Quantities / bid schedule / proposal quantity tables are AUTHORITATIVE.
-   For every item, copy description, STD BID NO / item_code, unit, and quantity from the SAME schedule row.
-2. Treat “(Ctd.)”, “continued”, and repeated table headers as ONE continuous schedule.
+SOURCE OF TRUTH (civil estimator — follow in order):
+1. Estimate Of Quantities / Bid Items / proposal quantity tables are the PAY-ITEM LIST.
+   This includes CAD-plotted / graphic tables (drawn grids), not only extractable PDF tables.
+   Copy every row from the SAME schedule line: description, STD BID NO / item_code, unit, quantity.
+   Keep Special (blank bid number) rows and blank UNIT / EST. QTY cells blank — do not invent values.
+2. Drawings (typical sections, plan/profile, details, sections) are the MEASUREMENT source:
+   - Fill a blank schedule quantity/unit from drawing takeoff (stationing, typical math, structure counts).
+   - If the schedule already printed a quantity, KEEP it. Record the drawing check; do not overwrite
+     with typical-section math (width×thickness×length), symbol counts, or F-sheet device lists.
+   - Add a drawing pay item only when it is not already on the schedule (missed row, or no schedule in the set).
+3. Treat “(Ctd.)”, “continued”, and repeated table headers as ONE continuous schedule.
    Extract ALL rows on continuation pages and keep the parent category (e.g. Water Main, not only “Water Main (Ctd.)”).
-3. Include Alternate A / Alternate B / option sections as valid pay items; keep the alternate label in category or description.
-4. Include lump-sum and non-physical rows: Mobilization, Tax on City Furnished Materials, Winter Maintenance,
+4. Include Alternate A / Alternate B / option sections as valid pay items; keep the alternate label in category or description.
+5. Include lump-sum and non-physical rows: Mobilization, Tax on City Furnished Materials, Winter Maintenance,
    Traffic Control, temporary items, signals, lighting, removals, erosion/landscaping.
-5. Copy Bid Items / Estimate Of Quantities / proposal quantity rows when they exist.
-   Also keep other evidenced pay items (pipe, pavement, curb, sidewalk, hydrants, valves as EA,
-   manholes, removals, earthwork, landscaping, structures). Combine duplicates later.
-   Do NOT add: incidental trench/bedding/backfill/fittings, individual MUTCD sign faces as Each items,
-   graphic channelizer counts, or traffic-control device “Project Totals” / itemized device tables.
-6. When the SAME pay item appears on both a bid schedule and a plan callout, keep one row and use
+6. Copy Bid Items / Estimate Of Quantities / proposal quantity rows when they exist.
+   Also keep other evidenced pay items from drawings (pipe, pavement, curb, sidewalk, hydrants, valves as EA,
+   manholes, removals, earthwork, landscaping, structures) when they are not already a schedule row.
+   Do NOT add: incidental trench/bedding/backfill unless they are their own quantified line,
+   individual MUTCD sign faces as Each items, graphic channelizer counts,
+   or traffic-control device “Project Totals” tables.
+   An “ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS” (Traffic Control SqFt, Miscellaneous LS, barricades) IS a pay-item list — copy it.
+   Fittings, insulation, and testing ARE pay items when the sheet prints their own EA/LF quantity.
+   Typical-section details for bedding, trench, backfill, tracer wire, thrust blocks, and polywrap
+   are construction details unless that work is its own quantified pay line.
+7. When the SAME pay item appears on both a bid schedule and a plan callout, keep one row and use
    the schedule quantity. Do not replace a schedule quantity by counting symbols.
-7. Keep schedule-distinct variants separate (furnish vs install, diameters, materials, alternates).
-8. INCIDENTAL WORK is not a pay item. If a note says work is incidental to / included in / paid under a bid item
+8. Keep schedule-distinct variants separate (furnish vs install, diameters, materials, depth ranges, alternates).
+9. INCIDENTAL WORK is not a pay item. If a note says work is incidental to / included in / paid under a bid item
    (or "no separate payment/measurement"), do NOT output it as its own quantity AND do NOT add it into the parent
    item quantity. Parent qty = the pay item only (schedule cell or measured pipe/pavement), never parent + incidentals.
-   Typical-section details for bedding, trench, backfill, fittings, tracer wire, thrust blocks, polywrap, and testing
-   are construction details unless that work is its own Bid Items / EOQ row.
-9. Same pay item on multiple sheets/locations (e.g. Fertilizer 1,189 lb and Fertilizer 39 lb) is ONE bid item.
+   Typical-section details for bedding, trench, backfill, tracer wire, thrust blocks, and polywrap
+   are construction details unless that work is printed as its own quantified pay line.
+   Fittings and testing are pay items when the drawing prints an EA/LF quantity; they are incidental
+   only when a note says incidental / no separate payment.
+10. Same pay item on multiple sheets/locations (e.g. Fertilizer 1,189 lb and Fertilizer 39 lb) is ONE bid item.
    Keep the same description/unit so location quantities can be combined. Do not invent a second pay item name.
 
 REQUIRED SEARCH PASSES:
@@ -130,8 +145,9 @@ IF a Bid Items / Estimate Of Quantities table has a Traffic Control section:
   temporary business signs (Each), portable changeable message signs (Each), temporary mailbox (Each),
   temporary gravel access (LS), winter maintenance (LS), and any other printed Traffic Control bid rows.
 - Copy BID ITEM / Standard Bid Item Number when printed (agency numbers like 634.0110 or Special — not CSI “01 55 26”).
-- Do NOT add extra bid items from traffic-control device tables (“Project Totals”, itemized device lists),
+- Do NOT add extra bid items from traffic-control device tables (“Project Totals”),
   graphic channelizer counts, or individual MUTCD signs. Those faces belong in Traffic Control SqFt when that pay item exists.
+- An “ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS” is a pay-item list — copy Traffic Control SqFt, Miscellaneous, and barricades.
 ELSE (no bid schedule for signing):
 - Do NOT list individual STOP/YIELD/Speed Limit/MUTCD signs as separate Each pay items.
 - Roll those sign faces into ONE pay item: description "Traffic Control", unit SqFt (width×height in inches ÷ 144).
@@ -150,13 +166,26 @@ printed on the drawing). Cover whichever of these the design actually shows:
 
 ROADS / HIGHWAYS:
 - Pavement layers from typical section: width × thickness × length / 27 = CY (HMA also tons @ 145 pcf).
-- Prime/tack coat SY = width × length / 9. Curb/gutter LF, sidewalk SF, shoulders, markings.
+- If width is printed “X ft each side of centerline”, total width = 2X. Station range STA A to STA B is length.
+- Geotextile SY = width × length / 9 when the typical shows fabric. Curb/gutter LF = 2 × length when both edges are shown.
+- Prime/tack coat SY = width × length / 9. Sidewalk SF, shoulders, markings.
 - Earthwork cut/fill CY when cross-sections or mass-haul notes exist. Do not invent corridor volumes without numbers.
 
+TRAFFIC CONTROL ON DRAWINGS:
+- An “ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS” (Traffic Control SqFt, Traffic Control Miscellaneous LS, barricades Each) IS a pay-item list — copy those rows.
+- Do NOT add channelizers, individual MUTCD sign faces, or F-sheet “Project Totals” device counts as extra bid items.
+
+NOTES:
+- A note “Included in the estimate of quantities is <qty> <unit> of/for <work>” IS a pay item. Extract it.
+- Removal callouts (remove curb/asphalt/pipe, sawcut) are pay items when they have their own quantity.
+- Storm structure callouts (Type B/Y frame, Class M6 concrete, reinforcing steel, RCP furnish/install LF) are pay items.
+- Do NOT copy bedding-rate plates (TON/LF by pipe diameter, “Bedding and Backfill for RCP Type B”). Those are incidental.
+
 UTILITIES:
-- Pipe LF by size and network (water / sanitary / storm). Count valves, hydrants, manholes, and inlets as EA when they are proposed pay items.
-- Do NOT take off trench excavation, bedding, backfill, tracer wire, polywrap, thrust blocks, testing, or fittings as separate quantities unless they appear as their own Bid Items / EOQ / table-of-quantities row. Those are incidental to the pipe.
-- Do NOT add incidental fitting counts, bedding volumes, or trench CY into the pipe LF (or any parent bid item).
+- Pipe LF by size and network (water / sanitary / storm). Count valves, hydrants, manholes, inlets, frames as EA when the drawing prints a quantity.
+- Fittings, insulation, and testing ARE pay items when the sheet prints their own EA/LF quantity. They are incidental only when a note says incidental / no separate payment.
+- Do NOT take off trench excavation, bedding-rate tables, backfill, tracer wire, polywrap, or thrust blocks unless they appear as their own quantified line.
+- Do NOT add incidental fitting counts, bedding volumes, or trench CY into the pipe LF.
 
 DAMS & RESERVOIRS:
 - Embankment fill, foundation excavation, cutoff, filter/drain, riprap, spillway/stilling-basin concrete.
@@ -340,23 +369,11 @@ def analyze_content(
 
         if vision_result and vision_result.get("schedule_mode_active"):
             if text_result:
-                strict_text_items = [
-                    dict(item)
-                    for item in (text_result.get("items") or [])
-                    if _is_strict_schedule_lock_row(dict(item))
-                ]
-                dropped = len(text_result.get("items") or []) - len(strict_text_items)
                 text_result = dict(text_result)
-                text_result["items"] = strict_text_items
                 text_result["schedule_mode_active"] = True
-                if dropped:
-                    note = (
-                        f"Suppressed {dropped} non-schedule text row(s) "
-                        "because an authoritative schedule was detected in vision."
-                    )
-                    text_result["summary"] = f"{text_result.get('summary') or ''} {note}".strip()
-            # Label/callout rows are intentionally skipped in schedule mode.
-            merged_parts = [r for r in (text_result, vision_result) if r]
+            # Keep drawing/label takeoff. Finalize merges it like an estimator:
+            # schedule list first, drawings fill blanks / add missed pay items.
+            merged_parts = [r for r in (text_result, label_result, vision_result) if r]
         else:
             merged_parts = [r for r in (text_result, label_result, vision_result) if r]
         merged: dict[str, Any] | None = None
@@ -374,7 +391,10 @@ def analyze_content(
         if merged is not None:
             if errors:
                 merged["notes"] = ((merged.get("notes") or "") + " | " + " | ".join(errors)).strip(" |")
-            if _takeoff_is_thin(merged.get("items") or [], content):
+            if _takeoff_is_thin(merged.get("items") or [], content) and not (
+                merged.get("schedule_mode_active")
+                or _has_authoritative_schedule(content, merged.get("items") or [])
+            ):
                 heuristic = _analyze_heuristic(
                     filename=filename, content=content, document_id=document_id
                 )
@@ -461,7 +481,9 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
                 seen.add(key)
                 items.append(it)
 
-    # Geometry notes
+    # Geometry notes / typicals / "included in the estimate of quantities" — always.
+    # A copied table (or a false inlet/bedding table) must not hide these locators;
+    # finalize merge drops duplicates against a real schedule.
     facts: list[dict[str, Any]] = []
     from app.services.civil_estimator import detect_project_types, items_from_design_text
 
@@ -469,28 +491,27 @@ def _analyze_heuristic(*, filename: str, content: ExtractedContent, document_id:
     if project_types:
         facts.append({"key": "project_types", "value": ", ".join(project_types)})
 
-    if not _pdf_has_copied_bid_table(content):
-        for it in items_from_design_text(text, filename=filename):
-            key = str(it.get("description") or "").lower()
-            if not key or key in seen:
-                continue
-            seen.add(key)
-            qty = _parse_number(it.get("quantity"))
-            if qty is None:
-                continue
-            items.append(
-                _item(
-                    description=str(it.get("description")),
-                    category=str(it.get("category") or "General"),
-                    unit=str(it.get("unit") or "unit"),
-                    quantity=qty,
-                    document_id=document_id,
-                    page=None,
-                    source=f"{filename} - design takeoff",
-                    method=str(it.get("calculation_method") or "Civil estimator from design text"),
-                    confidence=float(it.get("confidence") or 80),
-                )
+    for it in items_from_design_text(text, filename=filename):
+        key = str(it.get("description") or "").lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        qty = _parse_number(it.get("quantity"))
+        if qty is None:
+            continue
+        items.append(
+            _item(
+                description=str(it.get("description")),
+                category=str(it.get("category") or "General"),
+                unit=str(it.get("unit") or "unit"),
+                quantity=qty,
+                document_id=document_id,
+                page=None,
+                source=f"{filename} - design takeoff",
+                method=str(it.get("calculation_method") or "Civil estimator from design text"),
+                confidence=float(it.get("confidence") or 80),
             )
+        )
 
     width_match = re.search(r"\b(?:Road|Carriageway)\s*Width\b[^\d]{0,20}(\d{1,2}(?:\.\d+)?)\s*(m|ft)\b", text, re.I)
     if width_match:
@@ -611,17 +632,40 @@ def _has_strict_schedule_reference(blob: str) -> bool:
         "for bidding purposes",
         "std bid",
         "standard bid item number",
-        "item number",
         "extracted from quantity table (strict grid transcription)",
+        "graphic eoq",
+        "cad-plotted",
+        "focused schedule reread",
+        "bid schedule transcription",
     )
     return any(h in blob for h in hints)
+
+
+_HARD_DETAIL_HINTS = (
+    "estimated quantities table",
+    "long inlet",
+    "dia. outlet",
+    "constant column",
+    "variable column",
+    "project totals",
+    "bedding and backfill",
+    "quantity estimate table for bedding",
+    "rcp type b installation",
+    "ton/lft",
+)
+
+
+def _has_hard_non_bid_detail_reference(blob: str) -> bool:
+    low = blob or ""
+    if re.search(r"itemized\s+list\s+for\s+traffic\s+control\s+bid", low, re.I):
+        return False
+    return any(h in low for h in _HARD_DETAIL_HINTS)
 
 
 def _has_non_bid_detail_reference(blob: str) -> bool:
     hints = (
         "estimated quantities table",
         "project totals",
-        "itemized list",
         "city material procurement",
         "earthwork quantities",
         "typical section",
@@ -671,6 +715,8 @@ def _has_schedule_identifiers(
 
 def _is_authoritative_schedule_row(item: dict[str, Any]) -> bool:
     blob = _item_evidence_blob(item)
+    if _has_hard_non_bid_detail_reference(blob):
+        return False
     if any(
         h in blob
         for h in (
@@ -692,13 +738,16 @@ def _is_authoritative_schedule_row(item: dict[str, Any]) -> bool:
         line_number=item.get("line_number"),
         item_code=item.get("item_code"),
     )
+    transcribed = bool(item.get("table_transcribed")) or bool(item.get("schedule_authoritative"))
     if has_identifiers:
-        if bool(item.get("table_transcribed")) or bool(item.get("schedule_authoritative")):
+        if transcribed:
             return True
         if _has_strict_schedule_reference(blob):
             return True
     if _has_strict_schedule_reference(blob):
         if has_identifiers:
+            return True
+        if transcribed:
             return True
         if not bool(item.get("quantity_blank")) and not bool(item.get("unit_blank")):
             return True
@@ -712,6 +761,23 @@ def _raw_item_marked_schedule(
     assume_schedule_rows: bool,
     schedule_pages: set[int] | None,
 ) -> bool:
+    row_type_early = str(
+        raw_item.get("row_type")
+        or raw_item.get("item_type")
+        or raw_item.get("kind")
+        or raw_item.get("type")
+        or ""
+    ).strip().lower()
+    if row_type_early in {"other", "callout", "detail", "derived", "plan", "drawing", "typical", "takeoff"}:
+        return False
+    early_blob = _schedule_evidence_blob(
+        raw_item.get("calculation_method"),
+        raw_item.get("source_reference"),
+        raw_item.get("description"),
+        raw_item.get("category"),
+    )
+    if _has_hard_non_bid_detail_reference(early_blob):
+        return False
     if assume_schedule_rows:
         return True
     blob = _schedule_evidence_blob(
@@ -727,7 +793,7 @@ def _raw_item_marked_schedule(
         or raw_item.get("type")
         or ""
     ).strip().lower()
-    if row_type in {"other", "callout", "detail", "derived", "plan"}:
+    if row_type in {"other", "callout", "detail", "derived", "plan", "drawing", "typical", "takeoff"}:
         return False
     has_identifiers = _has_schedule_identifiers(
         item_number=raw_item.get("item_number"),
@@ -840,6 +906,14 @@ def _items_from_openai_payload(
             status=str(raw_item.get("status") or "needs_review"),
             source_reference=raw_item.get("source_reference"),
         )
+        row_type = str(
+            raw_item.get("row_type")
+            or raw_item.get("item_type")
+            or raw_item.get("kind")
+            or ""
+        ).strip().lower()
+        if row_type:
+            built["row_type"] = row_type
         if schedule_row:
             # Keep authoritative schedule rows stable through downstream pruning/grouping.
             built["table_transcribed"] = True
@@ -896,6 +970,13 @@ def _analyze_with_openai(
             "Ignore all surrounding boilerplate text/logos/stamps/notes. Do not generate missing cells; keep blanks blank. "
             "Parse section headers sequentially and assign each following row to that section until the next section header."
         )
+    elif _content_has_eoq_schedule(content):
+        design_or_schedule = (
+            "An Estimate of Quantities / Bid Items sheet is present but was NOT extracted as a structured table "
+            "(likely a CAD-plotted graphic schedule). Do NOT rebuild the bid list from typicals or callouts in this TEXT pass. "
+            "Vision transcribes the graphic table. From this TEXT, extract clearly printed drawing callouts/notes "
+            "as row_type other (measurement evidence). Traffic-control device lists / Project Totals are not the bid schedule."
+        )
     else:
         design_or_schedule = (
             "Copy every Bid Items / EOQ / EST. QTY / STD BID row if a quantity schedule is in this text. "
@@ -913,7 +994,7 @@ Rules:
 - Merge continuation tables: “(Ctd.)”, “continued”, repeated headers → same category; do not stop at page breaks.
 - Include Alternates (A/B), LS items (Mobilization, Tax…), Traffic Control/Signals/Lighting, Removals, Erosion/Landscaping.
 - Copy the schedule quantity cell — do not substitute a detail/callout count — WHEN a schedule exists.
-- Do NOT invent water fittings/valves/hydrants/pipe segments from free text unless they are schedule rows OR this is design-only takeoff with printed sizes/counts.
+- Do NOT invent water fittings/valves/hydrants/pipe segments from free text unless they are schedule rows OR a callout prints their own size/count/LF.
 - Skip incidental/included work. Do not list it separately and do not add it into the parent bid-item quantity.
 - If unsure, omit inventing values and mark needs_review.
 {catalog_rules}
@@ -1074,6 +1155,8 @@ def _is_strict_schedule_lock_row(item: dict[str, Any]) -> bool:
     if not _is_authoritative_schedule_row(item):
         return False
     blob = _item_evidence_blob(item)
+    if _has_hard_non_bid_detail_reference(blob):
+        return False
     if _has_non_bid_detail_reference(blob) and not _has_strict_schedule_reference(blob):
         return False
     has_identifiers = _has_schedule_identifiers(
@@ -1154,6 +1237,7 @@ def _focused_reread_schedule_pages_with_vision(
     if not pages:
         return [], []
 
+    read_dpi = max(int(dpi or 150), 220)
     plan = VisionPagePlan(
         page_count=max(pages),
         selected_pages=pages,
@@ -1169,10 +1253,13 @@ def _focused_reread_schedule_pages_with_vision(
     errors: list[str] = []
     system = (
         "You transcribe civil Bid Items / Estimate Of Quantities schedule rows exactly from rendered plan sheets. "
-        "Return STRICT JSON only. Never infer, compute, or hallucinate values."
+        "The table may be a CAD-plotted graphic (drawn grid), not a selectable PDF table. "
+        "Read every row including Special and blank cells. Return STRICT JSON only. Never infer, compute, or hallucinate values."
     )
 
-    for batch in iter_rendered_pdf_batches(pdf_path, plan, dpi=dpi, batch_pages=plan.batch_size):
+    for batch in iter_rendered_pdf_batches(
+        pdf_path, plan, dpi=read_dpi, batch_pages=plan.batch_size, max_edge=2800
+    ):
         page_list = [p.page for p in batch]
         images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
         user = f"""
@@ -1243,8 +1330,14 @@ def _analyze_pdf_drawings_with_vision(
     content: ExtractedContent | None = None,
 ) -> dict[str, Any]:
     from app.services.openai_client import ask_openai_vision_json
-    from app.services.pdf_vision import iter_rendered_pdf_batches, plan_pdf_vision_pages
+    from app.services.pdf_vision import (
+        iter_rendered_pdf_batches,
+        partition_schedule_and_drawing_pages,
+        plan_pdf_vision_pages,
+        vision_plan_for_pages,
+    )
     from app.config import get_settings
+    from app.services.engineer_takeoff import merge_schedule_with_drawings
 
     settings = get_settings()
     file_bytes = 0
@@ -1285,9 +1378,33 @@ def _analyze_pdf_drawings_with_vision(
     label_hints = ""
     if content and content.text:
         snippets = []
+        hint_keys = (
+            "water main",
+            "watermain",
+            " wm",
+            "wm ",
+            'water"',
+            "dip wm",
+            "prop. wm",
+            "proposed wm",
+            "typical section",
+            "each side of centerline",
+            "included in the estimate",
+            "traffic control",
+            "barricade",
+            "type b",
+            "class m6",
+            " rcp",
+            "geotextile",
+            "fertiliz",
+            "seed",
+            "remove curb",
+            "sawcut",
+            "saw cut",
+        )
         for line in (content.text or "").splitlines():
             low = line.lower()
-            if any(k in low for k in ("water main", "watermain", " wm", "wm ", 'water"', "dip wm", "prop. wm", "proposed wm")):
+            if any(k in low for k in hint_keys):
                 snippets.append(line.strip()[:160])
             if len(snippets) >= 40:
                 break
@@ -1298,10 +1415,15 @@ def _analyze_pdf_drawings_with_vision(
         system
         + " "
         + code_hint
-        + " Prefer EOQ/bid schedules on sheets when present. Merge (Ctd.) pages. "
-        + "Keep evidenced plan pay items (pipe, pavement, curb, hydrant, removals). "
-        + "Do not take off incidental trench/bedding/fittings or add them into parent quantities. "
-        + "Do not add MUTCD sign faces or graphic channelizers as extra bid items."
+        + " You are a civil estimator reading whatever plan set was uploaded (any city, any sheet naming). "
+        + "Take off pay items from typicals, callouts, notes, and true Bid Items / EOQ tables. "
+        + "Traffic Control bid-item lists (SqFt, Miscellaneous, barricades) are pay items; channelizer Project Totals are not. "
+        + "Notes that say a quantity is included in the estimate of quantities are pay items. "
+        + "Do not copy RCP bedding-rate plates. Do not overwrite a printed bid-schedule quantity. "
+        + "Do not take off incidental trench/bedding unless they are their own quantified line. "
+        + "Keep fittings/testing when the sheet prints an EA/LF quantity. "
+        + "Do not add MUTCD sign faces or graphic channelizers as extra bid items. "
+        + "F-sheet Project Totals (channelizers) are not the bid schedule."
     )
     schedule_rows: list[dict[str, Any]] = []
     non_schedule_rows: list[dict[str, Any]] = []
@@ -1316,59 +1438,81 @@ def _analyze_pdf_drawings_with_vision(
     strict_mode_relaxed = False
     focused_reread_rows = 0
     focused_reread_code_fills = 0
+    drawing_merge_stats: dict[str, int] = {}
     started = time.monotonic()
     budget_stopped = False
 
-    for batch in iter_rendered_pdf_batches(pdf_path, plan, dpi=dpi, batch_pages=batch_pages):
-        if not batch:
-            continue
-        elapsed = time.monotonic() - started
-        if vision_budget > 0 and elapsed >= vision_budget:
-            remaining = [
-                p
-                for p in plan.selected_pages
-                if p not in {m["page"] for m in vision_pages_meta}
-            ]
-            batch_errors.append(
-                f"Stopped vision after {int(elapsed)}s (budget {int(vision_budget)}s). "
-                f"Bid/qty sheets are scanned first; skipped remaining page(s) {remaining[:24]}."
-            )
-            budget_stopped = True
-            break
-        batch_index += 1
-        page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in batch)
-        images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
-        vision_pages_meta.extend({"page": p.page, "reason": p.reason} for p in batch)
-        batch_pages_list = [p.page for p in batch]
-        if schedule_detected:
-            coverage_note = (
-                f"This is batch {batch_index} of the PDF and an authoritative schedule was already detected. "
-                f"Only schedule continuation rows are needed from pages {batch_pages_list}."
-            )
-            sheet_job = """
-Primary job (schedule mode):
-- Extract ONLY Bid Items / Estimate Of Quantities table rows on THESE pages.
-- Ignore plan callouts/details/notes even if they contain quantities.
-- Include row_type="schedule" for each row.
-- Copy BID ITEM / STD BID NO into item_code. If the table cell is blank, leave item_code as empty string.
-- Preserve blank UNIT / EST. QTY cells as blank (quantity may be null/empty).
+    page_texts: dict[int, str] = {}
+    if content and content.pages:
+        for page in content.pages:
+            page_no = getattr(page, "page", None)
+            text = getattr(page, "text", None)
+            if page_no:
+                page_texts[int(page_no)] = text or ""
+
+    schedule_page_list, drawing_page_list = partition_schedule_and_drawing_pages(
+        plan.selected_pages,
+        reasons=plan.reasons,
+        page_texts=page_texts,
+    )
+
+    schedule_job = """
+Primary job — BID SCHEDULE (pay-item list):
+- These pages are (or may be) Estimate Of Quantities / Bid Items sheets, including CAD-plotted graphic tables.
+- Transcribe EVERY table row: item number, BID ITEM / STD BID NO, description, unit, EST. QTY.
+- Include Special rows and blank Bid No. / UNIT / QTY cells. Do not invent values for blank cells.
+- Include row_type="schedule" for each copied row.
+- Ignore title-block logos/stamps. Traffic-control device tables (“Project Totals”, itemized lists) are NOT the bid schedule.
 """
-        else:
+    drawing_job = """
+Primary job — DRAWINGS (measurement). Find pay items the way an estimator reads a plan set:
+- Typical sections: pavement CY/TON, geotextile SY, curb LF both sides, station-range length.
+- F-sheet “ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS”: copy Traffic Control SqFt, Miscellaneous LS, barricades Each.
+  Do NOT add channelizers or MUTCD sign faces from Project Totals graphics.
+- G-sheet / erosion notes: “Included in the estimate of quantities is …” lines are pay items (seed, fertilizer, water, inlet protection, sweeping).
+- H-sheet removals: remove curb/asphalt/pipe, sawcut, abandon — when a quantity is printed.
+- I-sheet utilities: pipe LF by size, valves/fittings/MH EA, insulation, testing when printed as their own quantity.
+- Storm callouts: RCP furnish/install LF, Type B/Y frames EA, Class M6 CY, rebar LB. Do NOT copy RCP bedding TON/LF plates.
+- Use row_type="drawing". Show the formula or count in calculation_method.
+"""
+    mixed_job = """
+Primary job:
+- If a Bid Items / Estimate Of Quantities table (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY) is on THESE pages, transcribe every row as row_type="schedule".
+- Also take off drawings (row_type="drawing"): typicals, traffic-control BID item lists, erosion notes, removals, utility callouts, storm frames/RCP.
+- F-sheet “ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS” rows are pay items. Channelizer Project Totals are not.
+- Bedding-rate plates (TON/LF by diameter) and inlet Constant/Variable detail tables are not the project bid tab.
+"""
+
+    def _run_vision_plan(sub_plan, *, sheet_job: str, default_method: str, assume_schedule: bool, dpi_use: int, max_edge: int | None) -> bool:
+        nonlocal batch_index, budget_stopped, schedule_detected
+        for batch in iter_rendered_pdf_batches(
+            pdf_path, sub_plan, dpi=dpi_use, batch_pages=sub_plan.batch_size, max_edge=max_edge
+        ):
+            if not batch:
+                continue
+            elapsed = time.monotonic() - started
+            if vision_budget > 0 and elapsed >= vision_budget:
+                remaining = [
+                    p
+                    for p in plan.selected_pages
+                    if p not in {m["page"] for m in vision_pages_meta}
+                ]
+                batch_errors.append(
+                    f"Stopped vision after {int(elapsed)}s (budget {int(vision_budget)}s). "
+                    f"Bid/qty sheets are scanned first; skipped remaining page(s) {remaining[:24]}."
+                )
+                budget_stopped = True
+                return True
+            batch_index += 1
+            page_meta = ", ".join(f"p{p.page} ({p.reason})" for p in batch)
+            images = [{"page": p.page, "png_b64": p.png_b64} for p in batch]
+            vision_pages_meta.extend({"page": p.page, "reason": p.reason} for p in batch)
+            batch_pages_list = [p.page for p in batch]
             coverage_note = (
                 f"This is batch {batch_index} of the PDF. "
                 f"Document has {plan.page_count} page(s); this request covers pages {batch_pages_list}."
             )
-            sheet_job = """
-Primary job:
-- First detect whether a Bid Items / Estimate Of Quantities table is visible on THESE pages
-  (ITEM NUMBER, BID ITEM, DESCRIPTION, UNITS, EST. QTY or STD BID NO / APPROX. QUANTITY).
-- If such a table is present, transcribe ONLY those schedule rows and set row_type="schedule".
-- If no such table is present on these pages, you may return other evidenced pay items with row_type="other".
-- Traffic-control device tables (“Project Totals”, itemized device lists) are NOT the bid schedule.
-- Do not invent trench/bedding/backfill/fittings unless printed as pay items.
-- Do not add channelizers or individual MUTCD signs from traffic-control graphics.
-"""
-        user = f"""
+            user = f"""
 You are looking at RENDERED ENGINEERING PLAN SHEETS from a civil PDF (not just OCR text).
 
 Document: {filename}
@@ -1381,19 +1525,19 @@ Rendered sheets: {page_meta}
 
 Return JSON:
 {{
-  "summary": "EOQ tables / continuation / alternates found on these sheets",
+  "summary": "EOQ tables / continuation / drawing takeoff found on these sheets",
   "facts": [{{"key":"eoq_table_found","value":"true","source_page":1}}],
   "items": [
     {{
       "row_type": "schedule",
       "item_number": "1",
-      "item_code": "optional STD BID NO",
-      "description": "exact schedule description",
+      "item_code": "optional STD BID NO or Special",
+      "description": "exact schedule or drawing description",
       "category": "Water Main",
       "unit": "Ft",
       "quantity": "245",
       "source_page": 4,
-      "source_reference": "EOQ schedule table",
+      "source_reference": "EOQ schedule table or typical/plan callout",
       "calculation_method": "Extracted from Estimate Of Quantities schedule",
       "confidence": 95,
       "status": "needs_review"
@@ -1402,52 +1546,88 @@ Return JSON:
   "needs_review": true
 }}
 """
-        try:
-            data = ask_openai_vision_json(vision_system, user, images)
-        except Exception as exc:
-            batch_errors.append(f"batch {batch_index} pages {[p.page for p in batch]}: {exc}")
-            continue
-        finally:
-            for img in images:
-                img["png_b64"] = ""
-            images.clear()
-        batch_facts = data.get("facts") or []
-        all_facts.extend(batch_facts)
-        for pg in _schedule_pages_from_facts(batch_facts):
-            schedule_pages.add(pg)
-        batch_items = _items_from_openai_payload(
-            data,
-            filename=filename,
-            document_id=document_id,
-            default_method="OpenAI vision — plan sheet",
-            schedule_pages=_schedule_pages_from_facts(batch_facts),
-        )
-        batch_schedule_rows = [it for it in batch_items if _is_strict_schedule_lock_row(it)]
-        for item in batch_schedule_rows:
-            page_no = _safe_int(item.get("source_page"))
-            if page_no and page_no > 0:
-                schedule_pages.add(page_no)
+            try:
+                data = ask_openai_vision_json(vision_system, user, images)
+            except Exception as exc:
+                batch_errors.append(f"batch {batch_index} pages {[p.page for p in batch]}: {exc}")
+                continue
+            finally:
+                for img in images:
+                    img["png_b64"] = ""
+                images.clear()
+            batch_facts = data.get("facts") or []
+            all_facts.extend(batch_facts)
+            for pg in _schedule_pages_from_facts(batch_facts):
+                schedule_pages.add(pg)
+            batch_items = _items_from_openai_payload(
+                data,
+                filename=filename,
+                document_id=document_id,
+                default_method=default_method,
+                assume_schedule_rows=assume_schedule,
+                schedule_pages=_schedule_pages_from_facts(batch_facts) if not assume_schedule else set(batch_pages_list),
+            )
+            batch_schedule_rows = [it for it in batch_items if _is_strict_schedule_lock_row(it)]
+            for item in batch_schedule_rows:
+                page_no = _safe_int(item.get("source_page"))
+                if page_no and page_no > 0:
+                    schedule_pages.add(page_no)
 
-        batch_non_schedule_rows = [it for it in batch_items if not _is_strict_schedule_lock_row(it)]
-        if batch_schedule_rows:
-            schedule_detected = True
-            schedule_rows.extend(batch_schedule_rows)
-        non_schedule_rows.extend(batch_non_schedule_rows)
-        if data.get("summary"):
-            summaries.append(str(data["summary"]))
+            batch_non_schedule_rows = [it for it in batch_items if not _is_strict_schedule_lock_row(it)]
+            if batch_schedule_rows:
+                schedule_detected = True
+                schedule_rows.extend(batch_schedule_rows)
+            non_schedule_rows.extend(batch_non_schedule_rows)
+            if data.get("summary"):
+                summaries.append(str(data["summary"]))
+        return False
+
+    if schedule_page_list:
+        sched_plan = vision_plan_for_pages(
+            plan, schedule_page_list, batch_size=1, reason="graphic/text EOQ schedule"
+        )
+        budget_stopped = _run_vision_plan(
+            sched_plan,
+            sheet_job=schedule_job,
+            default_method="OpenAI vision — bid schedule transcription",
+            assume_schedule=True,
+            dpi_use=max(int(dpi or 150), 200),
+            max_edge=2800,
+        )
+        if not budget_stopped and drawing_page_list:
+            draw_plan = vision_plan_for_pages(
+                plan, drawing_page_list, batch_size=batch_pages, reason="drawing takeoff"
+            )
+            budget_stopped = _run_vision_plan(
+                draw_plan,
+                sheet_job=drawing_job,
+                default_method="OpenAI vision — plan sheet",
+                assume_schedule=False,
+                dpi_use=dpi,
+                max_edge=None,
+            )
+    else:
+        budget_stopped = _run_vision_plan(
+            plan,
+            sheet_job=mixed_job,
+            default_method="OpenAI vision — plan sheet",
+            assume_schedule=False,
+            dpi_use=dpi,
+            max_edge=None,
+        )
 
     if schedule_detected and schedule_rows:
         lock_candidate = _should_lock_strict_schedule_mode(schedule_rows, non_schedule_rows)
         missing_codes_before = _missing_schedule_code_count(schedule_rows)
         if lock_candidate and missing_codes_before > 0:
-            focus_pages = sorted(schedule_pages)
+            focus_pages = sorted(schedule_pages or schedule_page_list)
             reread_rows, reread_errors = _focused_reread_schedule_pages_with_vision(
                 filename=filename,
                 document_id=document_id,
                 pdf_path=pdf_path,
                 schedule_pages=focus_pages,
-                dpi=dpi,
-                batch_pages=batch_pages,
+                dpi=max(int(dpi or 150), 220),
+                batch_pages=1,
             )
             if reread_errors:
                 batch_errors.extend(reread_errors)
@@ -1464,8 +1644,8 @@ Return JSON:
 
     schedule_mode_active = bool(schedule_detected and schedule_rows and _should_lock_strict_schedule_mode(schedule_rows, non_schedule_rows))
     if schedule_detected and schedule_rows and schedule_mode_active:
-        all_items = schedule_rows
-        suppressed_non_schedule_rows = len(non_schedule_rows)
+        all_items, drawing_merge_stats = merge_schedule_with_drawings(schedule_rows, non_schedule_rows)
+        suppressed_non_schedule_rows = int(drawing_merge_stats.get("dropped_drawing_rows") or 0)
     else:
         all_items = schedule_rows + non_schedule_rows
         strict_mode_relaxed = bool(schedule_detected and schedule_rows)
@@ -1506,9 +1686,15 @@ Return JSON:
         summary += " Batch errors: " + " | ".join(batch_errors[:5])
     if suppressed_non_schedule_rows:
         summary += (
-            f" Suppressed {suppressed_non_schedule_rows} non-schedule row(s) "
-            "after schedule detection in EOQ mode."
+            f" Estimator merge dropped {suppressed_non_schedule_rows} duplicate/device/typical extra drawing row(s)."
         )
+        added_n = int(drawing_merge_stats.get("added_from_drawings") or 0)
+        filled_n = int(drawing_merge_stats.get("filled_blanks") or 0)
+        if added_n or filled_n:
+            summary += (
+                f" Drawings filled {filled_n} blank schedule cell(s) "
+                f"and added {added_n} missed pay item(s)."
+            )
     if strict_mode_relaxed:
         summary += (
             " Detected schedule-like tables but evidence was not authoritative enough "
@@ -1580,8 +1766,10 @@ def _is_schedule_pay_item(item: dict[str, Any]) -> bool:
 
 def _should_drop_incidental_item(item: dict[str, Any]) -> bool:
     """Incidental children are omitted; their quantities are never added to a parent."""
+    if is_standard_plate_bedding(item):
+        return True
     if bool(item.get("table_transcribed")):
-        # Transcribed schedule rows are authoritative and must be preserved as-is.
+        # Transcribed bid-schedule rows are authoritative and must be preserved as-is.
         return False
     return should_drop_incidental_item(
         item,
@@ -1592,6 +1780,7 @@ def _should_drop_incidental_item(item: dict[str, Any]) -> bool:
 
 def _is_plan_invent_extra(item: dict[str, Any]) -> bool:
     """Traffic-control device graphics / assumed trench — not core pay items."""
+    from app.services.engineer_takeoff import is_core_typical_pay_item, is_typical_section_invent
     from app.services.traffic_control import is_plan_device_takeoff, looks_like_agency_bid_number
 
     if looks_like_agency_bid_number(item.get("item_code")):
@@ -1599,12 +1788,16 @@ def _is_plan_invent_extra(item: dict[str, Any]) -> bool:
     if is_plan_device_takeoff(item):
         return True
     blob = _item_evidence_blob(item)
+    if is_typical_section_invent(item) and is_core_typical_pay_item(item):
+        return False
     if any(h in blob for h in _PLAN_INVENT_HINTS):
         if any(h in blob for h in _SCHEDULE_METHOD_HINTS):
             return False
         return True
     entity = str(item.get("entity_type") or "").upper()
-    return entity == "ESTIMATOR"
+    if entity == "ESTIMATOR":
+        return "cover assumed" in blob or "trench width" in blob
+    return False
 
 
 def _method_rank(item: dict[str, Any]) -> int:
@@ -1646,7 +1839,6 @@ def _is_plan_derived(item: dict[str, Any]) -> bool:
             "graphic count",
             "project total",
             "itemized table",
-            "itemized list",
             "typical section",
             "inferred",
         )
@@ -1660,14 +1852,21 @@ def _table_header_text(table: dict[str, Any]) -> str:
     return " ".join(str(c or "") for c in rows[0]).lower()
 
 
+def _table_blob(table: dict[str, Any]) -> str:
+    rows = table.get("rows") or []
+    return " ".join(str(c or "") for row in rows if isinstance(row, list) for c in row).lower()
+
+
 def _is_plan_device_table(table: dict[str, Any]) -> bool:
     header = _table_header_text(table)
+    blob = f"{header} {_table_blob(table)}"
+    if re.search(r"itemized\s+list\s+for\s+traffic\s+control\s+bid", blob):
+        return False
     return any(
         k in header
         for k in (
             "project total",
             "project totals",
-            "itemized",
             "channelizer",
             "mutcd",
         )
@@ -1953,6 +2152,89 @@ def _extract_row_description(
     return ""
 
 
+def _qty_desc_table_layout(rows: list[Any]) -> tuple[int, int, int, int] | None:
+    """Header with description / unit / qty — no bid-item number required (F-sheet TC lists)."""
+    if not rows:
+        return None
+    for header_idx in range(min(len(rows), 8)):
+        header_row = rows[header_idx]
+        if not isinstance(header_row, list):
+            continue
+        header = [str(c or "").strip().lower() for c in header_row]
+        if not any(header):
+            continue
+        desc_idx = _find_col(header, list(_DESC_COL_NAMES))
+        unit_idx = _find_col(header, list(_UNIT_COL_NAMES))
+        qty_idx = _find_col(header, list(_QTY_COL_NAMES))
+        if desc_idx is None or unit_idx is None or qty_idx is None:
+            continue
+        return header_idx, desc_idx, unit_idx, qty_idx
+    return None
+
+
+def _is_traffic_control_bid_table(table: dict[str, Any]) -> bool:
+    """True for ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS — not channelizer Project Totals."""
+    if _is_bid_schedule_table(table):
+        return False
+    blob = _table_blob(table)
+    if "channelizer" in blob and not re.search(r"traffic\s+control|\bbarricade", blob):
+        return False
+    if re.search(r"\bmutcd\b", blob) and not re.search(r"traffic\s+control|\bbarricade", blob):
+        return False
+    if "project total" in blob and not re.search(r"traffic\s+control", blob):
+        return False
+    if not re.search(r"traffic\s+control|\bbarricade", blob):
+        return False
+    return _qty_desc_table_layout(table.get("rows") or []) is not None
+
+
+def _items_from_traffic_bid_tables(
+    content: ExtractedContent,
+    *,
+    filename: str,
+    document_id: int,
+) -> list[dict[str, Any]]:
+    """Copy F-sheet Traffic Control bid-item rows as drawing pay items (not the project bid tab)."""
+    items: list[dict[str, Any]] = []
+    for table in content.tables or []:
+        if not _is_traffic_control_bid_table(table):
+            continue
+        rows = table.get("rows") or []
+        layout = _qty_desc_table_layout(rows)
+        if not layout:
+            continue
+        header_idx, desc_idx, unit_idx, qty_idx = layout
+        page = table.get("page")
+        for row in rows[header_idx + 1 :]:
+            if not isinstance(row, list):
+                continue
+            desc = str(row[desc_idx] if desc_idx < len(row) else "").strip()
+            unit_raw = str(row[unit_idx] if unit_idx < len(row) else "").strip()
+            qty_raw = str(row[qty_idx] if qty_idx < len(row) else "").strip()
+            if not desc or _SKIP_TABLE_DESC_RE.match(desc):
+                continue
+            low = desc.lower()
+            if "channelizer" in low or re.search(r"\b(drum|cone|sign face)\b", low):
+                continue
+            qty = _parse_number(qty_raw)
+            if qty is None:
+                continue
+            item = _item(
+                description=desc,
+                category="Traffic Control",
+                unit=unit_raw or "UNIT",
+                quantity=qty,
+                document_id=document_id,
+                page=page,
+                source=f"{filename} - Traffic Control bid list" + (f" p.{page}" if page else ""),
+                method="Extracted from Traffic Control bid list",
+                source_reference="ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS",
+                confidence=92,
+            )
+            items.append(item)
+    return items
+
+
 def _items_from_document_tables(
     content: ExtractedContent,
     *,
@@ -1964,6 +2246,7 @@ def _items_from_document_tables(
     tables = list(content.tables or [])
     chosen = [t for t in tables if _is_bid_schedule_table(t)]
     if not chosen:
+        items.extend(_items_from_traffic_bid_tables(content, filename=filename, document_id=document_id))
         return items
 
     for table in chosen:
@@ -2071,6 +2354,7 @@ def _items_from_document_tables(
         if len(table_items) >= 2 and numbered_or_coded == 0 and non_blank_qty < 2:
             continue
         items.extend(table_items)
+    items.extend(_items_from_traffic_bid_tables(content, filename=filename, document_id=document_id))
     return items
 
 
@@ -2281,59 +2565,46 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
                 flags=re.I,
             ).strip() or cat
 
-    before_incidental = len(items)
-    items = [item for item in items if not _should_drop_incidental_item(item)]
-    incidental_dropped = before_incidental - len(items)
-    if not items:
-        out = dict(result)
-        out["items"] = []
-        note = "Dropped incidental-to-bid-item work (not separately paid)."
-        out["notes"] = ((out.get("notes") or "") + " | " + note).strip(" |")
-        return out
-
     schedule_present = _has_authoritative_schedule(content, items)
     cleaned = list(items)
     table_transcribed_present = any(bool(i.get("table_transcribed")) for i in cleaned)
-    strict_schedule_mode = bool(result.get("schedule_mode_active"))
+    strict_schedule_mode = bool(result.get("schedule_mode_active")) or (
+        schedule_present and table_transcribed_present
+    )
     dropped_non_schedule = 0
+    drawing_stats: dict[str, int] = {}
 
-    if schedule_present and table_transcribed_present:
-        schedule_rows = [i for i in cleaned if bool(i.get("table_transcribed"))]
-        schedule_desc = {
-            re.sub(r"\s+", " ", str(i.get("description") or "").strip().lower())
-            for i in schedule_rows
-            if str(i.get("description") or "").strip()
-        }
-        schedule_codes = {
-            str(i.get("item_code") or "").strip().lower()
-            for i in schedule_rows
-            if str(i.get("item_code") or "").strip()
-        }
-        non_schedule_rows: list[dict[str, Any]] = []
-        for item in cleaned:
-            if bool(item.get("table_transcribed")):
-                continue
-            desc_key = re.sub(r"\s+", " ", str(item.get("description") or "").strip().lower())
-            code_key = str(item.get("item_code") or "").strip().lower()
-            if (desc_key and desc_key in schedule_desc) or (code_key and code_key in schedule_codes):
-                dropped_non_schedule += 1
-                continue
-            if strict_schedule_mode and not _is_strict_schedule_lock_row(item):
-                dropped_non_schedule += 1
-                continue
-            category = str(item.get("category") or "").strip().lower()
-            if category in {"general", "miscellaneous"} and not _is_schedule_pay_item(item):
-                dropped_non_schedule += 1
-                continue
-            non_schedule_rows.append(item)
-        before_combine = len(non_schedule_rows)
-        non_schedule_rows = combine_similar_pay_items(non_schedule_rows)
-        combined_groups = before_combine - len(non_schedule_rows)
-        cleaned = schedule_rows + non_schedule_rows
+    schedule_rows = [
+        i
+        for i in cleaned
+        if bool(i.get("table_transcribed"))
+        or bool(i.get("schedule_authoritative"))
+        or _is_strict_schedule_lock_row(i)
+    ]
+    if schedule_rows:
+        from app.services.engineer_takeoff import merge_schedule_with_drawings
+
+        sched_ids = {id(i) for i in schedule_rows}
+        drawing_rows = [i for i in cleaned if id(i) not in sched_ids]
+        cleaned, drawing_stats = merge_schedule_with_drawings(schedule_rows, drawing_rows)
+        dropped_non_schedule = int(drawing_stats.get("dropped_drawing_rows") or 0)
+        schedule_out = [i for i in cleaned if not i.get("added_from_drawing")]
+        added = [i for i in cleaned if i.get("added_from_drawing")]
+        if added:
+            before_combine = len(added)
+            added = combine_similar_pay_items(added)
+            combined_groups = before_combine - len(added)
+        else:
+            combined_groups = 0
+        cleaned = schedule_out + added
     else:
         before_combine = len(cleaned)
         cleaned = combine_similar_pay_items(cleaned)
         combined_groups = before_combine - len(cleaned)
+
+    before_incidental = len(cleaned)
+    cleaned = [item for item in cleaned if not _should_drop_incidental_item(item)]
+    incidental_dropped = before_incidental - len(cleaned)
 
     # Roll individual traffic signs → one SqFt "Traffic Control" item
     from app.services.traffic_control import consolidate_traffic_control_signs
@@ -2362,15 +2633,22 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
         out["notes"] = ((out.get("notes") or "") + " | " + comb_note).strip(" |")
         out["summary"] = f"{(out.get('summary') or '')} {comb_note}".strip()
     if dropped_non_schedule:
-        if strict_schedule_mode:
+        if drawing_stats.get("added_from_drawings"):
             prune_note = (
-                f"Dropped {dropped_non_schedule} non-schedule row(s) "
-                "because an authoritative bid schedule was detected."
+                f"Estimator merge: kept schedule quantities, filled "
+                f"{drawing_stats.get('filled_blanks') or 0} blank(s) from drawings, "
+                f"added {drawing_stats.get('added_from_drawings')} missed drawing pay item(s), "
+                f"dropped {dropped_non_schedule} duplicate/incidental/device/typical drawing row(s)."
+            )
+        elif strict_schedule_mode:
+            prune_note = (
+                f"Dropped {dropped_non_schedule} drawing row(s) that duplicated the bid schedule, "
+                "were incidental, or came from device lists / typical-section extras."
             )
         else:
             prune_note = (
-                f"Dropped {dropped_non_schedule} non-table General/Misc row(s) "
-                "because a strict bid schedule table was transcribed."
+                f"Dropped {dropped_non_schedule} non-table incidental or extra row(s) "
+                "because a bid schedule table was transcribed."
             )
         out["notes"] = ((out.get("notes") or "") + " | " + prune_note).strip(" |")
         out["summary"] = f"{(out.get('summary') or '')} {prune_note}".strip()
@@ -2389,23 +2667,20 @@ def _finalize_analysis(result: dict[str, Any], *, content: ExtractedContent | No
 def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str, Any]) -> dict[str, Any]:
     """Union text/table items with drawing-vision items.
 
-    Keep every location takeoff; similar rows are summed later in finalize.
+    Keep every location takeoff; similar rows are merged later in finalize
+    (schedule quantity wins, drawings fill blanks / add missed pay items).
     """
     strict_schedule_mode = bool(
         text_result.get("schedule_mode_active")
         or vision_result.get("schedule_mode_active")
     )
     items: list[dict[str, Any]] = []
-    suppressed = 0
     for source in (text_result.get("items") or [], vision_result.get("items") or []):
         for item in source:
             if not item.get("description"):
                 continue
             normalized = dict(item)
             normalized["unit"] = _normalize_contract_unit(normalized.get("unit"))
-            if strict_schedule_mode and not _is_strict_schedule_lock_row(normalized):
-                suppressed += 1
-                continue
             if _should_drop_incidental_item(normalized):
                 continue
             items.append(normalized)
@@ -2416,8 +2691,6 @@ def _merge_analysis_results(text_result: dict[str, Any], vision_result: dict[str
         f"Also merged text/table takeoff ({len(text_result.get('items') or [])} text items, "
         f"{len(vision_result.get('items') or [])} drawing items → {len(items)} unique)."
     ).strip()
-    if strict_schedule_mode and suppressed:
-        summary = f"{summary} Suppressed {suppressed} non-schedule row(s) in schedule mode.".strip()
     return {
         "engine": "openai+vision",
         "summary": summary,

@@ -546,10 +546,12 @@ def test_vision_schedule_mode_suppresses_non_schedule_and_rereads_missing_codes(
 
     by_desc = {str(i.get("description")): i for i in (vision.get("items") or [])}
     assert vision.get("schedule_mode_active") is True
-    assert "Install City Furnished 6 in. C900 DR18 PVC Water Main" not in by_desc
     assert by_desc["Mobilization"]["item_code"] == "9.0010"
     assert by_desc["Tax on City Furnished Materials"]["item_code"] == "9.0550"
     assert by_desc["Tax on City Furnished Materials"].get("quantity_blank") is True
+    # Drawing callouts stay as measurement evidence when the schedule is incomplete.
+    assert "Install City Furnished 6 in. C900 DR18 PVC Water Main" in by_desc
+    assert float(by_desc["Install City Furnished 6 in. C900 DR18 PVC Water Main"]["quantity"]) == 463
     assert len(calls) >= 2  # initial batch + focused reread
 
 
@@ -651,3 +653,273 @@ def test_vision_detail_tables_do_not_lock_strict_schedule_mode(monkeypatch, tmp_
     assert 'Class M6 Concrete — 18" Dia. Outlet, Constant' in by_desc
     assert "Install City Furnished 6 in. C900 DR18 PVC Water Main" in by_desc
     assert len(calls) == 1  # no focused reread when strict schedule mode does not lock
+
+
+def test_f2_device_list_is_not_graphic_schedule_page():
+    from app.services.pdf_vision import (
+        is_device_list_page,
+        is_graphic_schedule_page,
+        is_traffic_bid_item_list_page,
+        partition_schedule_and_drawing_pages,
+    )
+
+    b1 = "CITY OF SIOUX FALLS  ESTIMATE OF QUANTITIES  FOR BIDDING PURPOSES ONLY  SHEET B.1"
+    f2 = "SHEET F2  ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS  Traffic Control SQFT 149"
+    f9 = "SHEET F9 PROJECT TOTALS  42 IN CHANNELIZER"
+    note = "Included in the estimate of quantities is 93 MGAL's of water for vegetation for the seeded areas."
+    inlet = "Estimated Quantities table 6' Long Inlet 15\" Dia. outlet Constant column"
+    assert is_graphic_schedule_page(b1)
+    assert not is_device_list_page(b1)
+    assert is_traffic_bid_item_list_page(f2)
+    assert not is_device_list_page(f2)
+    assert is_device_list_page(f9)
+    assert not is_graphic_schedule_page(f2)
+    assert not is_graphic_schedule_page(note)
+    assert not is_graphic_schedule_page(inlet)
+    schedule, drawings = partition_schedule_and_drawing_pages(
+        [1, 2, 8],
+        reasons={1: "schedule/qty sheet", 2: "schedule/qty sheet", 8: "civil keywords"},
+        page_texts={1: b1, 2: b1, 8: f2},
+    )
+    assert schedule == [1, 2]
+    assert 8 in drawings
+
+
+def test_engineer_merge_keeps_schedule_qty_and_uses_drawings():
+    from app.services.engineer_takeoff import merge_schedule_with_drawings
+
+    schedule = [
+        {
+            "description": "Remove Asphalt Concrete Pavement",
+            "unit": "SqYd",
+            "quantity": 416,
+            "item_code": "110.0100",
+            "item_number": "20",
+            "table_transcribed": True,
+            "schedule_authoritative": True,
+            "calculation_method": "Extracted from Estimate Of Quantities schedule",
+            "source_reference": "Sheet B.1",
+        },
+        {
+            "description": "Aggregate Base Course",
+            "unit": "Ton",
+            "quantity": 527,
+            "item_code": "260.0200",
+            "item_number": "28",
+            "table_transcribed": True,
+            "schedule_authoritative": True,
+            "calculation_method": "Extracted from Estimate Of Quantities schedule",
+            "source_reference": "Sheet B.1",
+        },
+        {
+            "description": "Tax on City Furnished Materials",
+            "unit": "LS",
+            "quantity": 0,
+            "item_code": "9.0550",
+            "item_number": "2",
+            "quantity_blank": True,
+            "raw_quantity": "",
+            "table_transcribed": True,
+            "schedule_authoritative": True,
+            "calculation_method": "Extracted from Estimate Of Quantities schedule",
+            "source_reference": "Sheet B.1",
+        },
+        {
+            "description": "Type 3 Barricade, 8' Double Sided",
+            "unit": "Each",
+            "quantity": 12,
+            "item_code": "634.0285",
+            "item_number": "4",
+            "table_transcribed": True,
+            "schedule_authoritative": True,
+            "calculation_method": "Extracted from Estimate Of Quantities schedule",
+            "source_reference": "Sheet B.1",
+        },
+    ]
+    drawings = [
+        {
+            "description": "Remove Asphalt Concrete Pavement",
+            "unit": "SqYd",
+            "quantity": 791,
+            "calculation_method": "Typical section STA 2+88 to 3+98 width × length / 9",
+            "source_reference": "Sheet C.1 typical",
+        },
+        {
+            "description": "12-inch Aggregate Base Course",
+            "unit": "CY",
+            "quantity": 139,
+            "entity_type": "ESTIMATOR",
+            "calculation_method": "Typical section: 12' wide × 12\" thick × 110' long / 27",
+            "source_reference": "Sheet C.1 typical",
+        },
+        {
+            "description": "Type 3 Barricade, 6' Double Sided",
+            "unit": "Each",
+            "quantity": 12,
+            "calculation_method": "Extracted from Traffic Control bid list",
+            "source_reference": "F2, ITEMIZED LIST FOR TRAFFIC CONTROL",
+        },
+        {
+            "description": "Fire Hydrant",
+            "unit": "Each",
+            "quantity": 3,
+            "calculation_method": "OpenAI vision — plan sheet",
+            "source_reference": "Sheet I.1 hydrant symbols",
+        },
+        {
+            "description": "42 in Channelizer",
+            "unit": "Each",
+            "quantity": 8,
+            "calculation_method": "Graphic count of channelizer symbols on F-sheets",
+            "source_reference": "Sheets F9-F12 symbols",
+        },
+    ]
+    items, stats = merge_schedule_with_drawings(schedule, drawings)
+    by_desc = {str(i.get("description")): i for i in items}
+    assert float(by_desc["Remove Asphalt Concrete Pavement"]["quantity"]) == 416
+    assert "drawing check" in str(by_desc["Remove Asphalt Concrete Pavement"].get("calculation_method") or "").lower()
+    assert float(by_desc["Aggregate Base Course"]["quantity"]) == 527
+    assert "12-inch Aggregate Base Course" not in by_desc
+    assert "42 in Channelizer" not in by_desc
+    assert float(by_desc["Type 3 Barricade, 8' Double Sided"]["quantity"]) == 12
+    assert "Type 3 Barricade, 6' Double Sided" not in by_desc
+    assert by_desc["Fire Hydrant"]["quantity"] == 3
+    assert bool(by_desc["Fire Hydrant"].get("added_from_drawing"))
+    assert stats["added_from_drawings"] == 1
+    assert stats["qty_checks"] >= 1
+
+
+def test_finalize_merges_graphic_schedule_with_drawing_takeoff():
+    content = ExtractedContent(
+        text="ESTIMATE OF QUANTITIES  FOR BIDDING PURPOSES ONLY  SHEET B.1",
+        tables=[],
+        page_count=2,
+    )
+    result = _finalize_analysis(
+        {
+            "engine": "openai+vision",
+            "summary": "graphic schedule + drawings",
+            "schedule_mode_active": True,
+            "items": [
+                {
+                    "description": "Mobilization",
+                    "unit": "LS",
+                    "quantity": 1,
+                    "item_code": "9.0010",
+                    "item_number": "1",
+                    "table_transcribed": True,
+                    "schedule_authoritative": True,
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                    "source_reference": "Sheet B.1",
+                },
+                {
+                    "description": "Remove Asphalt Concrete Pavement",
+                    "unit": "SqYd",
+                    "quantity": 416,
+                    "item_code": "110.0100",
+                    "item_number": "20",
+                    "table_transcribed": True,
+                    "schedule_authoritative": True,
+                    "calculation_method": "Extracted from Estimate Of Quantities schedule",
+                    "source_reference": "Sheet B.1",
+                },
+                {
+                    "description": "Remove Asphalt Concrete Pavement",
+                    "unit": "SqYd",
+                    "quantity": 791,
+                    "calculation_method": "Typical section STA 2+88 to 3+98",
+                    "source_reference": "Sheet C.1",
+                },
+                {
+                    "description": "8-Inch Water Main",
+                    "unit": "Ft",
+                    "quantity": 85,
+                    "calculation_method": "OpenAI vision — plan sheet",
+                    "source_reference": "Sheet I.1 callout",
+                },
+            ],
+        },
+        content=content,
+    )
+    by_desc = {str(i.get("description")): i for i in result["items"]}
+    assert float(by_desc["Remove Asphalt Concrete Pavement"]["quantity"]) == 416
+    assert "8-Inch Water Main" in by_desc
+    assert float(by_desc["8-Inch Water Main"]["quantity"]) == 85
+    assert float(by_desc["Mobilization"]["quantity"]) == 1
+
+
+def test_engineer_merge_keeps_typical_when_bedding_plate_looks_like_schedule():
+    """A storm bedding-rate plate must not drop unmatched typical-section pavement."""
+    from app.services.engineer_takeoff import merge_schedule_with_drawings
+
+    schedule = [
+        {
+            "description": f'Bedding Material — {12 + i}" RCP Type B',
+            "unit": "TON/LFT",
+            "quantity": 0.12,
+            "item_code": "Special",
+            "table_transcribed": True,
+            "calculation_method": "Quantity estimate table for bedding",
+            "source_reference": "Sheet L.3 bedding plate",
+        }
+        for i in range(22)
+    ]
+    drawings = [
+        {
+            "description": "Aggregate Base Course",
+            "unit": "CY",
+            "quantity": 139,
+            "entity_type": "ESTIMATOR",
+            "calculation_method": "Typical section: 34' wide × 12\" thick × 110' long / 27",
+            "source_reference": "Sheet C.1 typical",
+        },
+        {
+            "description": "Geotextile Fabric",
+            "unit": "SY",
+            "quantity": 415,
+            "entity_type": "ESTIMATOR",
+            "calculation_method": "Typical section geotextile 34' × 110' / 9",
+            "source_reference": "Sheet C.1 typical",
+        },
+        {
+            "description": "Traffic Control",
+            "unit": "SqFt",
+            "quantity": 149,
+            "calculation_method": "Extracted from Traffic Control bid list",
+            "source_reference": "ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS",
+        },
+    ]
+    items, stats = merge_schedule_with_drawings(schedule, drawings)
+    by_desc = {str(i.get("description")): i for i in items}
+    assert "Aggregate Base Course" in by_desc
+    assert "Geotextile Fabric" in by_desc
+    assert float(by_desc["Traffic Control"]["quantity"]) == 149
+    assert stats["added_from_drawings"] >= 3
+
+
+def test_traffic_bid_table_is_copied_as_drawing_pay_items():
+    from app.services.ai_analysis import _items_from_document_tables
+
+    content = ExtractedContent(
+        text="SHEET F2 ITEMIZED LIST FOR TRAFFIC CONTROL BID ITEMS",
+        tables=[
+            {
+                "page": 8,
+                "rows": [
+                    ["Item Description", "Unit", "Qty"],
+                    ["Traffic Control", "SQFT", "149"],
+                    ["TRAFFIC CONTROL MISCELLANEOUS", "LS", "1"],
+                    ["TYPE 3 BARRICADES, 8' DOUBLE SIDED", "EA", "12"],
+                    ["42 IN CHANNELIZER", "EA", "8"],
+                ],
+            }
+        ],
+    )
+    items = _items_from_document_tables(content, filename="plans.pdf", document_id=1)
+    by_desc = {str(i.get("description")): i for i in items}
+    assert float(by_desc["Traffic Control"]["quantity"]) == 149
+    assert "TRAFFIC CONTROL MISCELLANEOUS" in by_desc
+    assert "TYPE 3 BARRICADES, 8' DOUBLE SIDED" in by_desc
+    assert "42 IN CHANNELIZER" not in by_desc
+    assert not any(i.get("table_transcribed") for i in items)
+

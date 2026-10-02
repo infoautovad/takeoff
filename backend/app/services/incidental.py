@@ -66,10 +66,6 @@ _DEFAULT_EXTRA_RE = re.compile(
     r"sheeting|"
     r"shoring|"
     r"trench\s+box(?:es)?|"
-    r"hydrostatic\s+tests?|"
-    r"disinfection|"
-    r"chlorination|"
-    r"flushing|"
     r"pipe\s+(?:lubricants?|gaskets?)"
     r")\b",
     re.I,
@@ -100,6 +96,17 @@ _TRENCH_INCIDENTAL_NOTES_RE = re.compile(
     r"incidental(?:ly)?\s+to.{0,40}(?:pipe|watermain|water\s*main|sewer)",
     re.I,
 )
+
+# Standard-plate storm bedding (TON/LF by diameter) is never a bid row.
+_PLATE_BEDDING_RE = re.compile(
+    r"bedding\s+and\s+backfill|"
+    r"quantity\s+estimate\s+table\s+for\s+bedding|"
+    r"rcp\s+type\s+b\s+installation|"
+    r"ton\s*/\s*lft|ton/lft|ton\s+per\s+l\.?f|"
+    r"bedding\s+material\s*[-–—]\s*\d",
+    re.I,
+)
+_TON_PER_LF_UNIT_RE = re.compile(r"ton\s*/\s*l\.?f|ton/lft|ton\s+per\s+l", re.I)
 
 _PARENT_PAY_RE = re.compile(
     r"\b(?:"
@@ -176,6 +183,21 @@ def quantity_inflated_by_incidentals(text: str | None) -> bool:
     return bool(_QTY_INFLATED_RE.search(str(text or "")))
 
 
+def is_standard_plate_bedding(item: dict[str, Any] | None = None, *, text: str | None = None) -> bool:
+    """True for RCP Type B / storm bedding-rate plates — not bid-schedule rows."""
+    blob = str(text or "")
+    unit = ""
+    if item:
+        blob = f"{blob} {item_evidence_text(item)}"
+        unit = str(item.get("unit") or "")
+    blob_l = blob.lower()
+    if _PLATE_BEDDING_RE.search(blob):
+        return True
+    if _TON_PER_LF_UNIT_RE.search(unit) and "bedding" in blob_l:
+        return True
+    return False
+
+
 def cad_notes_make_trench_incidental(text: str | None) -> bool:
     return bool(_TRENCH_INCIDENTAL_NOTES_RE.search(str(text or "")))
 
@@ -242,6 +264,8 @@ def should_drop_incidental_item(
     desc = str(item.get("description") or "")
     if is_kept_incidental_pay_item(desc):
         return False
+    if is_standard_plate_bedding(item):
+        return True
     if unit_is_incidental(item.get("unit")):
         return True
     if description_is_incidental_child(desc):

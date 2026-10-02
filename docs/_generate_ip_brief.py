@@ -13,7 +13,7 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt, RGBColor
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT_PATH = Path(__file__).resolve().parent / "AutoVAD_Takeoff_Engines_Confidential_IP_Brief.docx"
+OUT_PATH = Path(__file__).resolve().parent / "AutoVAD_Takeoff_Engines_Confidential_IP_Brief_updated.docx"
 
 ENGINE_FILES = [
     "backend/app/services/ai_analysis.py",
@@ -29,6 +29,8 @@ ENGINE_FILES = [
     "backend/app/services/eoq_service.py",
     "backend/app/services/bid_service.py",
     "backend/app/services/eoq_eval.py",
+    "backend/app/services/training_service.py",
+    "backend/app/services/processing.py",
     "backend/app/services/pdf_vision.py",
     "backend/app/services/openai_client.py",
     "backend/app/services/extractors.py",
@@ -209,7 +211,7 @@ def add_table(doc, headers, rows):
         cell.text = ""
         run = cell.paragraphs[0].add_run(h)
         set_run_font(run, size=10, bold=True, color=RGBColor(255, 255, 255))
-        shade_cell(cell, "0D1F19")
+        shade_cell(cell, "061018")
     for r_i, row in enumerate(rows):
         bg = "F4F7F2" if r_i % 2 == 0 else "FFFFFF"
         for c_i, val in enumerate(row):
@@ -280,6 +282,7 @@ def build() -> Path:
     centered(doc, "AutoVAD", size=28, bold=True, color=DARK)
     centered(doc, "AI Copilot for Civil Engineers", size=16, color=BLUE)
     centered(doc, "Patent-Only Pack\nUnique Takeoff, CAD, and EOQ Engines", size=14, italic=True)
+    centered(doc, "Revision: 2026-10-01  ·  live backend and frontend engines", size=11, italic=True, color=BLUE)
     centered(
         doc,
         f"Prepared: {date.today().isoformat()}    ·    Engine source files: {total_files}    ·    Approximate source lines: {total_lines:,}",
@@ -318,31 +321,38 @@ def build() -> Path:
     bullets(
         doc,
         [
-            "Included: PDF/CAD takeoff engines, incidental filter, location combining, traffic-control rollup, CSI/EOQ grouping including Alternate A/B, master bid-template matching, deterministic validation, Civil 3D stationing, Excel EOQ engine.",
-            "Excluded: login, registration, dashboard chrome, billing, notifications, admin UI, generic API glue.",
+            "Included: PDF/CAD takeoff engines, incidental filter, location combining, traffic-control rollup, CSI/EOQ grouping including Alternate A/B, locked master bid-template matching, deterministic validation, Civil 3D stationing, Excel EOQ engine, Training Lab gold-set compare, any-format original-EOQ extract, imported AutoVAD Excel reconstruction.",
+            "Excluded: login, registration, dashboard chrome, billing, notifications, marketing pages, generic API glue.",
+            "This revision (2026-10-01) adds U-17 through U-19 and updates U-01, U-02, U-08, U-12, and U-14 from the current repository. "
+            "New engine source in the inventory: training_service.py and processing.py.",
         ],
     )
 
     doc.add_heading("3. System overview (engine)", level=1)
     para(
         doc,
-        "An engineer uploads PDF plan sets and/or CAD (DXF, DWG, LandXML). The engines extract pay items and quantities, "
-        "build an Estimate of Quantities (EOQ), map evidenced items to AutoVAD’s master bid template, and export Excel. "
-        "Schedule tables are treated as authoritative when present. Unmatched evidenced takeoff is kept with Standard Bid "
-        "Item Number shown as Special, still grouped under the correct civil category. Alternate A / Alternate B sections "
-        "are separate EOQ categories.",
+        "An engineer uploads PDF plan sets (including graphic-only sheets), images, and/or CAD (DXF, DWG, LandXML). "
+        "The engines extract pay items and quantities, always map evidenced items to AutoVAD’s locked master bid list "
+        "(Bid Item List 2026 or the configured workbook), and export Excel. User-uploaded bid templates are not used as "
+        "the pay-item catalog. Schedule tables are treated as authoritative when present. Unmatched evidenced takeoff is "
+        "kept with Standard Bid Item Number shown as Special, still grouped under the correct civil category (for example "
+        "Watermain). Alternate A / Alternate B sections are separate EOQ categories. An internal Training Lab can either "
+        "re-run the same analyze path or reconstruct AutoVAD’s EOQ from a user-portal Excel export, then compare it to an "
+        "original EOQ that may be PDF, image, Excel, CSV, or JSON.",
     )
     add_table(
         doc,
         ["Engine", "Role"],
         [
-            ["Document AI fusion", "Text, tables, PDF vision, labels — schedule-first ranking and optional strict schedule lock"],
+            ["Document AI fusion", "Text, tables, PDF vision, labels — schedule-first ranking, optional strict schedule lock, model-compat vision client"],
             ["Incidental filter", "Drop work marked incidental; do not add it into the parent qty"],
             ["Location combiner", "Sum similar pay items from different sheets; keep true variants and alternates apart"],
             ["Validation layer", "Unit-family sanity, duplicate collapse, schedule-priority over plan takeoff"],
             ["Traffic Control", "MUTCD sign rollup to SqFt, or copy schedule companion rows"],
             ["CAD / Civil 3D", "Size-aware quantities, trench extras, APS DWG plugin, station-offset lengths"],
+            ["Locked master bid list", "Evidence-only match to Bid Item List 2026; unused catalog lines omitted; Special stays in the true discipline"],
             ["EOQ assembly", "CSI + agency bid numbers or Special, municipal groups, Alternate A/B, Mobilization, Excel review"],
+            ["Training Lab", "Re-analyze plans or import AutoVAD Excel; extract original EOQ from any file type; gold-set evaluation"],
         ],
     )
 
@@ -351,7 +361,8 @@ def build() -> Path:
         doc,
         "Counsel should assess patentability (novelty, non-obviousness, eligible subject matter) and whether to file a "
         "provisional covering the combination of schedule-first extraction, incidental exclusion, location combining, "
-        "traffic-control rollup, CAD stationing, master-template evidence matching, and municipal EOQ presentation.",
+        "traffic-control rollup, CAD stationing, locked master-template evidence matching, municipal EOQ presentation, "
+        "any-format original-EOQ extract, and Training Lab reconstruction of a user-portal Excel EOQ.",
     )
 
     methods = [
@@ -360,15 +371,18 @@ def build() -> Path:
             "When an Estimate of Quantities / Bid Items table exists, AutoVAD copies those rows as the pay-item list, "
             "preserves blank unit/quantity cells, and drops F-sheet device tables, graphic symbol counts, assumed trench extras, "
             "and typical-section invents. Strict schedule lock is used only when rows look like a true bid schedule (item numbers / "
-            "agency codes), not a general detail quantity table. Agency bid numbers (for example 9.0010 or 634.0110) are copied as item_code.",
-            "backend/app/services/ai_analysis.py — _is_bid_schedule_table, _is_strict_schedule_lock_row, _items_from_document_tables, _finalize_analysis",
+            "agency codes), not a general detail quantity table. If schedule codes are missing after a first pass, AutoVAD can "
+            "re-read schedule pages with vision to fill agency numbers. Agency bid numbers (for example 9.0010 or 634.0110) are copied as item_code.",
+            "backend/app/services/ai_analysis.py — _is_bid_schedule_table, _is_strict_schedule_lock_row, _items_from_document_tables, _focused_reread_schedule_pages_with_vision, _finalize_analysis",
         ),
         (
             "U-02  Multi-engine drawing takeoff fusion",
             "PDF plans are read by combining OpenAI text/table extraction, rendered-sheet vision, deterministic utility-label parsing, "
             "heuristic patterns, and CAD geometry. Pages are scored so bid/qty/utility sheets are preferred; large sets can scan all pages "
-            "in RAM-safe batches. Evidence is ranked so a printed schedule quantity is preferred over a drawing measurement.",
-            "backend/app/services/ai_analysis.py, pdf_vision.py, openai_client.py, utility_labels.py",
+            "in RAM-safe batches. Evidence is ranked so a printed schedule quantity is preferred over a drawing measurement. The shared "
+            "OpenAI client omits temperature on gpt-5 / gpt-6 / Terra / Astra / o-series models and retries after stripping any parameter "
+            "the model rejects, so vision on graphic plan sheets does not fail silent and return an empty EOQ.",
+            "backend/app/services/ai_analysis.py, pdf_vision.py, openai_client.py, utility_labels.py, processing.py",
         ),
         (
             "U-03  Incidental-to-bid-item exclusion",
@@ -431,10 +445,12 @@ def build() -> Path:
         ),
         (
             "U-12  Master bid-template matching without dumping the unused list",
-            "AutoVAD’s standard master bid list is matched to evidenced takeoff only. Unused template lines are omitted. Multiple location "
-            "hits on the same template line are summed. Unmatched evidenced items stay in the EOQ with Standard Bid Item Number = Special, "
-            "and are still placed under Watermain, Surfacing, or other true categories rather than a leftover unmapped bucket.",
-            "backend/app/services/bid_service.py — build_eoq_items_from_template, _match_line",
+            "Every analyze run uses AutoVAD’s locked master bid workbook (default Bid Item List 2026.xlsx, sheet Bid Items), not a "
+            "user-uploaded catalog. Only evidenced takeoff is matched. Unused master lines are omitted so the EOQ is not a dump of "
+            "the full list. Multiple location hits on the same master line are summed. Unmatched evidenced items stay in the EOQ with "
+            "Standard Bid Item Number = Special, and are still placed under Watermain, Surfacing, Traffic Control, or other true "
+            "categories rather than a leftover Unmapped bucket. Document processing always injects this master catalog into analysis.",
+            "backend/app/services/bid_service.py — get_autovad_master_template_lines, get_autovad_master_bid_catalog, build_eoq_items_from_template, _match_line; processing.py — _bid_catalog_for_project",
         ),
         (
             "U-13  Deterministic EOQ validation",
@@ -445,14 +461,16 @@ def build() -> Path:
         (
             "U-14  Gold-set EOQ evaluation / Training Lab",
             "Expected EOQ gold cases are compared to engine output (recall, misses by category, quantity error). An internal Training Lab "
-            "lets reviewers compare original vs AutoVAD analysis vs evaluation. Gold cases are used to improve engines; they are not hardcoded "
-            "as the product EOQ for other projects.",
-            "backend/app/services/eoq_eval.py, training_service.py; frontend training views",
+            "has three stages: (1) produce AutoVAD EOQ by re-analyzing the plan or by importing a user-portal AutoVAD Excel, "
+            "(2) ingest the original/gold EOQ from any supported file type, (3) evaluate and report. Gold cases are used to improve "
+            "engines; they are not hardcoded as the product EOQ for other projects.",
+            "backend/app/services/eoq_eval.py, training_service.py; frontend/src/views/backend/TrainingAnalyzeView.vue and related Training Lab views",
         ),
         (
             "U-15  Engineer-review Excel EOQ workbook",
             "Excel export writes municipal section headers, bid numbers or Special, SQFT/TON labels, and conditional formatting so Verified vs "
-            "Engineer Review changes cell fill and font. Utility stationing can export detail plus rolled summary.",
+            "Engineer Review changes cell fill and font. Utility stationing can export detail plus rolled summary. Workbook chrome uses "
+            "navy headers and electric-blue column titles so the delivered bid tab matches the AutoVAD brand without changing pay-item logic.",
             "backend/app/services/eoq_service.py",
         ),
         (
@@ -460,6 +478,28 @@ def build() -> Path:
             "Each PDF page is scored for civil takeoff value (schedule, utility labels, profiles, sparse-text drawings). Utility/schedule pages "
             "can be force-included. Large documents use smaller vision batches without silently dropping remaining sheets when scan-all is on.",
             "backend/app/services/pdf_vision.py — plan_pdf_vision_pages, _score_page",
+        ),
+        (
+            "U-17  Training Lab reconstruction of a user-portal AutoVAD Excel",
+            "Counsel/reviewers can skip a second plan analysis and upload the Excel/CSV/JSON that the user portal already generated. "
+            "The parser reconstructs pay items from AutoVAD section banners, municipal header rows, and Special bid numbers so the "
+            "Training Lab evaluates the same EOQ the estimator downloaded. Engine tag imported_excel distinguishes this path from a live analyze.",
+            "backend/app/services/training_service.py — parse_autovad_eoq_file, _parse_autovad_table, _section_name_from_row, save_autovad_eoq_file",
+        ),
+        (
+            "U-18  Any-format original / gold EOQ extract",
+            "The original EOQ used as the gold set may be PDF, image, Excel, CSV, or JSON. Graphic plan-sheet PDFs that have no extractable "
+            "table are rasterized and read with the same vision client as takeoff. Vision failures are surfaced as real errors instead of an "
+            "empty-item list. This keeps original-vs-AutoVAD evaluation possible when the agency EOQ is a scanned sheet rather than a workbook.",
+            "backend/app/services/training_service.py — parse_expected_eoq_file, _parse_expected_pdf, _extract_expected_via_ai",
+        ),
+        (
+            "U-19  CAD-or-PDF processing with locked catalog injection",
+            "Each uploaded document is routed once: native CAD (DWG / DXF / LandXML) uses the CAD Intelligence Engine and is mirrored into "
+            "the same DocumentAnalysis / EOQ path as PDF takeoff; plan PDFs and images use the document-AI fusion path. Both paths receive "
+            "the locked master bid catalog so CAD quantities and PDF quantities are mapped with the same evidence-only Special rules. "
+            "A project can therefore mix CAD and plan sheets without a second bid-list source.",
+            "backend/app/services/processing.py — process_document, _process_cad_as_analysis, _bid_catalog_for_project",
         ),
     ]
     for title, body, source in methods:
@@ -507,7 +547,7 @@ def build() -> Path:
         doc,
         [
             "Confirm claimant legal name, inventors, and assignment chain.",
-            "Patent: consider a provisional on U-01 through U-16 as a combined takeoff system.",
+            "Patent: consider a provisional on U-01 through U-19 as a combined takeoff system.",
             "Copyright of the whole website: use a separate full source deposit, not this pack alone.",
             "Trade secret: keep this .docx and the private repository off public GitHub if unpublished.",
             "Dependencies (FastAPI, Vue, Autodesk, OpenAI) are not AutoVAD inventions.",
@@ -522,7 +562,7 @@ def build() -> Path:
         doc.save(OUT_PATH)
         return OUT_PATH
     except PermissionError:
-        alt = OUT_PATH.with_name(OUT_PATH.stem + "_updated.docx")
+        alt = OUT_PATH.with_name(f"{OUT_PATH.stem}_{date.today().isoformat()}.docx")
         doc.save(alt)
         return alt
 

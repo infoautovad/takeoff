@@ -21,6 +21,54 @@ def test_detect_project_types_road_dam_building():
     assert detect_project_types("random notes") == ["civil"]
 
 
+def test_typical_each_side_centerline_geotextile_and_curb():
+    text = (
+        "TYPICAL SECTION  17.0 ft each side of centerline. "
+        "STA 2+88 to STA 3+98. Aggregate base 12 in. HMA 3 in. "
+        "Geotextile fabric. SF66 Curb both sides."
+    )
+    items = items_from_design_text(text, filename="C.1.pdf")
+    by_desc = {i["description"]: i for i in items}
+    # width = 34 ft, length = 110 ft
+    abc = by_desc["Aggregate Base Course"]
+    assert abs(abc["quantity"] - (34 * 1.0 * 110 / 27.0)) < 0.05
+    assert "Geotextile Fabric" in by_desc
+    assert by_desc["Geotextile Fabric"]["unit"] == "SY"
+    assert abs(by_desc["Geotextile Fabric"]["quantity"] - (34 * 110 / 9.0)) < 0.05
+    curb = by_desc["Concrete Curb and Gutter"]
+    assert curb["unit"] == "LF"
+    assert abs(curb["quantity"] - 220.0) < 0.05
+
+
+def test_included_in_estimate_of_quantities_notes():
+    text = (
+        "Included in the estimate of quantities is 93 MGAL's of water for vegetation "
+        "for the seeded areas. Included in the estimate of quantities is 1189 lb of fertilizer."
+    )
+    items = items_from_design_text(text, filename="G.2.pdf")
+    by_desc = {i["description"]: i for i in items}
+    assert by_desc["Watering"]["quantity"] == 93
+    assert by_desc["Watering"]["unit"] == "MGAL"
+    assert by_desc["Fertilizer"]["quantity"] == 1189
+    assert by_desc["Fertilizer"]["unit"] == "LB"
+
+
+def test_printed_storm_and_traffic_callouts():
+    text = (
+        "Furnish 12\" RCP 37 LF. Class M6 Concrete 3.96 CY. "
+        "Type B Frame and Grate 2 EA. Reinforcing Steel 500 lb. "
+        "TRAFFIC CONTROL SQFT 149. TRAFFIC CONTROL MISCELLANEOUS LS 1."
+    )
+    items = items_from_design_text(text, filename="plans.pdf")
+    by_desc = {i["description"]: i for i in items}
+    assert by_desc["RCP Storm Sewer"]["quantity"] == 37
+    assert by_desc["Class M6 Concrete"]["quantity"] == 3.96
+    assert by_desc["Type B Frame and Grate"]["quantity"] == 2
+    assert by_desc["Reinforcing Steel"]["quantity"] == 500
+    assert by_desc["Traffic Control"]["quantity"] == 149
+    assert by_desc["Traffic Control Miscellaneous"]["quantity"] == 1
+
+
 def test_typical_section_pavement_cy_and_hma_tons():
     text = (
         "Road width 24 ft. Length 1000 ft. Typical section: "

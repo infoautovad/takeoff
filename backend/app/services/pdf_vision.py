@@ -23,6 +23,7 @@ DRAWING_KEYWORDS = re.compile(
     r"\b(plan|profile|section|detail|typical|cross[\s-]?section|alignment|"
     r"pavement|utility|sewer|water|watermain|water\s*main|\bwm\b|storm|grading|earthwork|quantity|"
     r"schedule|laying|station|curb|gutter|manhole|pipe|valve|hydrant|inlet|"
+    r"geotextile|fertiliz|seed(?:ing)?|barricade|frame\s+and\s+grate|class\s+m-?6|"
     r"summary|bid\s*item|pay\s*item|tabulation)\b",
     re.I,
 )
@@ -31,7 +32,8 @@ UTILITY_LABEL_HINTS = re.compile(
     r"(\d{1,2}\s*(?:\"|''|in)\s*(?:water|wm|sanitary|storm)|"
     r"water\s*mains?|watermains?|\bwm\b|prop(?:osed)?\.?\s*wm|"
     r"gate\s*valve|fire\s*hydrant|dip\s+wm|pvc\s+wm|"
-    r"sanitary\s*sewer|storm\s*drain|manhole|catch\s*basin)",
+    r"sanitary\s*sewer|storm\s*drain|manhole|catch\s*basin|"
+    r"type\s+[by]\s+frame|class\s+m-?6|\brcp\b)",
     re.I,
 )
 
@@ -42,7 +44,91 @@ SCHEDULE_HINTS = re.compile(
     re.I,
 )
 
+DEVICE_LIST_HINTS = re.compile(
+    r"project\s+totals?|\bchannelizer",
+    re.I,
+)
+
 PROFILE_HINTS = re.compile(r"\b(profile|sta\.?|stationing|invert|grade\s*line)\b", re.I)
+
+
+def is_traffic_bid_item_list_page(text: str) -> bool:
+    """F-sheet pay-item list (Traffic Control SqFt / Misc / barricades) — not channelizer totals."""
+    return bool(re.search(r"itemized\s+list\s+for\s+traffic\s+control\s+bid", text or "", re.I))
+
+
+def is_device_list_page(text: str) -> bool:
+    """F-sheet device Project Totals — not Traffic Control bid-item lists."""
+    low = text or ""
+    if is_traffic_bid_item_list_page(low):
+        return False
+    return bool(DEVICE_LIST_HINTS.search(low))
+
+
+def is_detail_quantity_page(text: str) -> bool:
+    """Structure/inlet 'Estimated Quantities' details are not the project bid tab."""
+    low = text or ""
+    if re.search(r"for\s+bidding\s+purposes", low, re.I):
+        return False
+    return bool(
+        re.search(
+            r"long\s+inlet|dia\.?\s*outlet|constant\s+column|variable\s+column|"
+            r"estimated\s+quantities\s+table|"
+            r"bedding\s+and\s+backfill|quantity\s+estimate\s+table\s+for\s+bedding|"
+            r"rcp\s+type\s+b",
+            low,
+            re.I,
+        )
+    )
+
+
+def is_graphic_schedule_page(text: str) -> bool:
+    """CAD-plotted Estimate of Quantities / Bid Items sheets (often no extractable table)."""
+    low = text or ""
+    if is_device_list_page(low) or is_detail_quantity_page(low):
+        return False
+    # Notes that mention the EOQ are not the EOQ sheet.
+    if re.search(r"included in the estimate of quantit", low, re.I):
+        if not re.search(r"for\s+bidding\s+purposes", low, re.I):
+            return False
+    if re.search(r"for\s+bidding\s+purposes", low, re.I):
+        return True
+    if re.search(r"estimate\s+of\s+quantit", low, re.I) and re.search(
+        r"std\s*bid|est\.?\s*qty|item\s+number|bid\s+item",
+        low,
+        re.I,
+    ):
+        return True
+    if re.search(r"\bbid items\b", low, re.I) and re.search(
+        r"est\.?\s*qty|std\s*bid|item\s+number",
+        low,
+        re.I,
+    ):
+        return True
+    return False
+
+
+def partition_schedule_and_drawing_pages(
+    selected_pages: list[int],
+    *,
+    reasons: dict[int, str] | None = None,
+    page_texts: dict[int, str] | None = None,
+) -> tuple[list[int], list[int]]:
+    """Split vision pages: graphic/text EOQ sheets vs typicals/plan/profile/details."""
+    reasons = reasons or {}
+    page_texts = page_texts or {}
+    schedule: list[int] = []
+    drawings: list[int] = []
+    for page in selected_pages:
+        text = page_texts.get(page, "")
+        if is_traffic_bid_item_list_page(text) or is_device_list_page(text):
+            drawings.append(page)
+            continue
+        if is_graphic_schedule_page(text):
+            schedule.append(page)
+        else:
+            drawings.append(page)
+    return schedule, drawings
 
 # Large files use smaller vision batches for RAM. Page count is never capped when scan_all is on.
 LARGE_PAGE_THRESHOLD = 80
@@ -145,6 +231,28 @@ class VisionPagePlan:
     large_document: bool = False
 
 
+def vision_plan_for_pages(
+    plan: VisionPagePlan,
+    pages: list[int],
+    *,
+    batch_size: int | None = None,
+    reason: str | None = None,
+) -> VisionPagePlan:
+    selected = [int(p) for p in pages if int(p) > 0]
+    reasons = {p: (reason or plan.reasons.get(p, "selected")) for p in selected}
+    return VisionPagePlan(
+        page_count=plan.page_count,
+        selected_pages=selected,
+        skipped_pages=[p for p in plan.selected_pages if p not in set(selected)],
+        truncated=plan.truncated,
+        forced_utility_pages=plan.forced_utility_pages,
+        scan_all=False,
+        batch_size=max(1, int(batch_size or plan.batch_size or 1)),
+        reasons=reasons,
+        large_document=plan.large_document,
+    )
+
+
 @dataclass
 class VisionPageSelection:
     """Legacy-compatible selection that may include rendered images."""
@@ -221,8 +329,10 @@ def plan_pdf_vision_pages(
                 except Exception:
                     text = ""
             score, reason = _score_page(text=text, page_index=i, page_count=page_count)
-            has_utility = bool(UTILITY_LABEL_HINTS.search(text)) or bool(SCHEDULE_HINTS.search(text))
-            has_schedule = bool(SCHEDULE_HINTS.search(text))
+            graphic_eoq = is_graphic_schedule_page(text)
+            device_list = is_device_list_page(text)
+            has_utility = bool(UTILITY_LABEL_HINTS.search(text)) or graphic_eoq
+            has_schedule = graphic_eoq or (bool(SCHEDULE_HINTS.search(text)) and not device_list)
             scored.append((score, i, reason, has_utility, has_schedule))
 
         reasons = {i + 1: reason for _s, i, reason, _u, _sch in scored}
@@ -371,7 +481,13 @@ def _score_page(*, text: str, page_index: int, page_count: int) -> tuple[float, 
     if page_count > 8 and 0.15 <= (page_index / max(page_count - 1, 1)) <= 0.9:
         score += 6
 
-    if SCHEDULE_HINTS.search(stripped):
+    if is_device_list_page(stripped):
+        score += 8
+        reasons.append("traffic device list")
+    elif is_graphic_schedule_page(stripped):
+        score += 42
+        reasons.append("schedule/qty sheet")
+    elif SCHEDULE_HINTS.search(stripped):
         score += 28
         reasons.append("schedule/qty sheet")
 

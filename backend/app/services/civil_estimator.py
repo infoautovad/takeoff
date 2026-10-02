@@ -44,7 +44,7 @@ def detect_project_types(*blobs: Any) -> list[str]:
 
 _THICK_IN = re.compile(
     r"(?P<name>GSB|WMM|DBM|BC|HMA|PCC|sub[- ]?base|base\s*course|binder|surface\s*course|"
-    r"aggregate\s*base|asphalt|concrete\s*pavement|sidewalk|curb)"
+    r"aggregate\s*base|asphalt|concrete\s*pavement|sidewalk)"
     r"[^\n]{0,40}?(?P<th>\d+(?:\.\d+)?)\s*(?P<u>mm|cm|in(?:ch(?:es)?)?|\"|ft|m)\b",
     re.I,
 )
@@ -52,13 +52,26 @@ _WIDTH = re.compile(
     r"(?:road|carriageway|pavement|roadway|crest|dam)\s*width[^\d]{0,16}(?P<w>\d+(?:\.\d+)?)\s*(?P<u>m|ft|')?",
     re.I,
 )
+_EACH_SIDE = re.compile(
+    r"(?P<w>\d+(?:\.\d+)?)\s*(?P<u>ft|feet|m|'|in)?\s*each\s+side(?:\s+of\s+(?:the\s+)?centerline)?",
+    re.I,
+)
 _LENGTH = re.compile(
-    r"(?:length|alignment\s*length|road\s*length|crest\s*length)[^\d]{0,16}"
+    r"(?:length|alignment\s*length|road\s*length|crest\s*length|project\s*length)[^\d]{0,16}"
     r"(?P<l>\d{2,6}(?:\.\d+)?)\s*(?P<u>m|ft|km|mi)?",
     re.I,
 )
 _STA_RANGE = re.compile(
-    r"(?P<a>\d{1,4}\+\d{2}(?:\.\d+)?)\s*(?:to|[-–—])\s*(?P<b>\d{1,4}\+\d{2}(?:\.\d+)?)",
+    r"(?:sta(?:tion)?\.?\s*)?(?P<a>\d{1,4}\+\d{2}(?:\.\d+)?)\s*(?:to|[-–—])\s*"
+    r"(?:sta(?:tion)?\.?\s*)?(?P<b>\d{1,4}\+\d{2}(?:\.\d+)?)",
+    re.I,
+)
+_INCLUDED_QTY = re.compile(
+    r"included\s+in\s+the\s+estimate\s+of\s+quantit(?:y|ies)\s+is\s+"
+    r"(?P<qty>[\d,]+(?:\.\d+)?)\s*"
+    r"(?P<unit>mgal'?s?|mgals?|million\s+gal(?:lons?)?|lb|lbs|pounds?|ton|tons|"
+    r"cy|cu\.?\s*yd|sy|sq\.?\s*yd|sf|sq\.?\s*ft|lf|lft|ft|each|ea|ls|acre|acres|hour|hr)\s*"
+    r"(?:of|for|in)?\s*(?P<rest>[^.;\n]{0,90})",
     re.I,
 )
 
@@ -123,16 +136,22 @@ def items_from_design_text(text: str, *, filename: str = "plan") -> list[dict[st
     wm = _WIDTH.search(text)
     if wm:
         width_ft = _to_feet(float(wm.group("w")), wm.group("u"))
+    em = _EACH_SIDE.search(text)
+    if em:
+        # “17.0 ft each side of centerline” is the typical-section width, not a lane note.
+        width_ft = _to_feet(float(em.group("w")), em.group("u")) * 2.0
 
     length_ft = None
     lm = _LENGTH.search(text)
     if lm:
         length_ft = _to_feet(float(lm.group("l")), lm.group("u"))
     sm = _STA_RANGE.search(text)
-    if sm and length_ft is None:
+    if sm:
         a, b = _sta_feet(sm.group("a")), _sta_feet(sm.group("b"))
         if a is not None and b is not None:
-            length_ft = abs(b - a)
+            sta_len = abs(b - a)
+            if length_ft is None or sta_len > 5:
+                length_ft = sta_len
 
     # Pavement layers from typical section
     if width_ft and length_ft and width_ft > 2 and length_ft > 20:
@@ -211,6 +230,38 @@ def items_from_design_text(text: str, *, filename: str = "plan") -> list[dict[st
                         72.0,
                     )
                 )
+        if any(
+            k in low
+            for k in ("geotextile", "geogrid", "pavement fabric", "separator fabric", "woven fabric")
+        ):
+            items.append(
+                _qty(
+                    "Geotextile Fabric",
+                    "Surfacing",
+                    "SY",
+                    round(sy, 2),
+                    f"Typical section geotextile {width_ft:.1f}' × {length_ft:.0f}' / 9 ({filename})",
+                    80.0,
+                )
+            )
+        if re.search(r"\b(?:sf-?66|curb(?:ing)?(?:\s*(?:and|&)\s*gutter)?)\b", low) and not re.search(
+            r"remove.{0,24}curb|curb.{0,24}remov",
+            low,
+        ):
+            sides = 1.0 if re.search(r"\b(?:one\s+side|left\s+only|right\s+only)\b", low) else 2.0
+            items.append(
+                _qty(
+                    "Concrete Curb and Gutter",
+                    "Surfacing",
+                    "LF",
+                    round(sides * length_ft, 2),
+                    f"Typical section curb: {sides:g} edge(s) × {length_ft:.0f}' ({filename})",
+                    80.0,
+                )
+            )
+
+    items.extend(_included_estimate_items(text, filename))
+    items.extend(_printed_callout_items(text, filename))
 
     combined = _BUILDING + _DAM
     for desc, cat, unit, pat in combined:
@@ -267,20 +318,190 @@ def _layer_label(name: str) -> str:
 
 
 def _norm_unit(raw: str, fallback: str) -> str:
-    r = (raw or fallback or "unit").lower()
-    if r in {"m3", "m³", "cy", "cu.yd", "cu yd"}:
+    r = re.sub(r"[^a-z0-9]+", "", (raw or fallback or "unit").lower())
+    if r in {"m3", "cy", "cuyd"}:
         return "CY"
-    if r in {"m2", "m²", "sf", "sft"}:
+    if r in {"m2", "sf", "sft", "sqft"}:
         return "SF"
+    if r in {"sy", "sqyd"}:
+        return "SY"
+    if r in {"lf", "lft", "ft", "feet", "linearft", "linearfeet"}:
+        return "LF"
     if r in {"ton", "tons", "t"}:
         return "TON"
+    if r in {"lb", "lbs", "pounds"}:
+        return "LB"
     if r in {"nos", "no", "ea", "each"}:
         return "EA"
-    if r in {"mgal", "million gal"}:
+    if r in {"ls", "lumpsum"}:
+        return "LS"
+    if r in {"mgal", "mgals", "milliongal", "milliongallons"}:
         return "MGAL"
-    if r in {"acre-ft", "acre ft"}:
+    if r in {"acre", "acres"}:
+        return "ACRE"
+    if r in {"acreft", "acft"}:
         return "AC-FT"
-    return fallback.upper()
+    if r in {"hour", "hr", "hours"}:
+        return "HOUR"
+    return (fallback or "UNIT").upper()
+
+
+def _included_work_name(rest: str, unit: str) -> tuple[str, str]:
+    r = (rest or "").lower()
+    if "fertiliz" in r:
+        return "Fertilizer", "Erosion Control"
+    if "water" in r or unit == "MGAL":
+        return "Watering", "Erosion Control"
+    if re.search(r"\bseeding\b|\bseed\s+mix\b", r) or re.search(r"\bseed\b", r):
+        return "Seeding", "Erosion Control"
+    if "inlet protection" in r:
+        return "Inlet Protection", "Erosion Control"
+    if "silt" in r:
+        return "Silt Fence", "Erosion Control"
+    cleaned = re.sub(r"^(?:of|for|in|the)\s+", "", (rest or "").strip(), flags=re.I)
+    cleaned = re.split(r"\bfor the\b|\bwhich\b", cleaned, maxsplit=1)[0].strip(" ,.")
+    return (cleaned[:80] or "Included Estimate Quantity"), "General"
+
+
+def _included_estimate_items(text: str, filename: str) -> list[dict[str, Any]]:
+    """Notes that print 'Included in the estimate of quantities is <qty> <unit> …'."""
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for match in _INCLUDED_QTY.finditer(text or ""):
+        if extraction_should_skip("Included Estimate Quantity", text, match.start()):
+            continue
+        try:
+            qty_val = float(str(match.group("qty")).replace(",", ""))
+        except (TypeError, ValueError):
+            continue
+        if qty_val <= 0:
+            continue
+        unit = _norm_unit(match.group("unit"), "UNIT")
+        desc, cat = _included_work_name(match.group("rest") or "", unit)
+        key = f"{desc.lower()}|{unit}"
+        if key in seen:
+            continue
+        seen.add(key)
+        items.append(
+            _qty(
+                desc,
+                cat,
+                unit,
+                qty_val,
+                f"Note on '{filename}': included in the estimate of quantities",
+                88.0,
+            )
+        )
+    return items
+
+
+_CALLOUT_SPECS: list[tuple[str, str, str, str]] = [
+    (
+        "Type B Frame and Grate",
+        "Storm Sewer",
+        "EA",
+        r"type\s+b\s+(?:frame(?:\s+and\s+grate)?|casting|inlet)[^\n]{0,48}?(?P<q>\d{1,4})\s*(?:ea|each|nos?)",
+    ),
+    (
+        "Type Y Frame and Grate",
+        "Storm Sewer",
+        "EA",
+        r"type\s+y\s+(?:frame(?:\s+and\s+grate)?|casting)[^\n]{0,48}?(?P<q>\d{1,4})\s*(?:ea|each|nos?)",
+    ),
+    (
+        "Class M6 Concrete",
+        "Storm Sewer",
+        "CY",
+        r"class\s+m-?6(?:\s+concrete)?[^\n]{0,48}?(?P<q>\d+(?:\.\d+)?)\s*(?:cy|cu\.?\s*yd)",
+    ),
+    (
+        "Reinforcing Steel",
+        "Storm Sewer",
+        "LB",
+        r"reinforc(?:ing|ement)\s+steel[^\n]{0,48}?(?P<q>\d{2,6})\s*(?:lb|lbs)",
+    ),
+    (
+        "RCP Storm Sewer",
+        "Storm Sewer",
+        "LF",
+        r"(?:furnish|install).{0,40}(?:rcp|reinforced\s+concrete\s+pipe)[^\n]{0,48}?(?P<q>\d{2,5})\s*(?:lf|lft|ft)\b",
+    ),
+    (
+        "RCP Storm Sewer",
+        "Storm Sewer",
+        "LF",
+        r"(\d{1,2})\s*[\"”]\s*(?:rcp|reinforced\s+concrete\s+pipe)[^\n]{0,40}?(?P<q>\d{2,5})\s*(?:lf|lft|ft)\b",
+    ),
+    (
+        "Remove Curb and Gutter",
+        "Removals",
+        "LF",
+        r"remove\s+curb(?:\s*(?:and|&)\s*gutter)?[^\n]{0,40}?(?P<q>\d+(?:\.\d+)?)\s*(?:lf|lft|ft)\b",
+    ),
+    (
+        "Remove Asphalt Concrete Pavement",
+        "Removals",
+        "SY",
+        r"remove\s+asphalt[^\n]{0,40}?(?P<q>\d+(?:\.\d+)?)\s*(?:sy|sq\.?\s*yd)\b",
+    ),
+    (
+        "Sawcut",
+        "Removals",
+        "LF",
+        r"saw\s*-?cut[^\n]{0,32}?(?P<q>\d+(?:\.\d+)?)\s*(?:lf|lft|ft)\b",
+    ),
+    (
+        "Traffic Control",
+        "Traffic Control",
+        "SF",
+        r"traffic\s+control(?!\s+miscellaneous)[^\n]{0,24}?(?:sq\.?\s*ft|sqft|sf)\s*(?P<q>\d+(?:\.\d+)?)",
+    ),
+    (
+        "Traffic Control Miscellaneous",
+        "Traffic Control",
+        "LS",
+        r"traffic\s+control\s+miscellaneous[^\n]{0,24}?(?:ls|lump\s*sum)\s*(?P<q>\d+(?:\.\d+)?)",
+    ),
+    (
+        "Type 3 Barricade",
+        "Traffic Control",
+        "EA",
+        r"type\s+\d\s+barricade[^\n]{0,48}?(?P<q>\d{1,4})\s*(?:ea|each|nos?)",
+    ),
+]
+
+
+def _printed_callout_items(text: str, filename: str) -> list[dict[str, Any]]:
+    """Quantified plan notes: storm frames, RCP, removals, F-sheet traffic bid rows."""
+    items: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for desc, cat, unit, pat in _CALLOUT_SPECS:
+        for match in re.finditer(pat, text or "", re.I):
+            if extraction_should_skip(desc, text, match.start()):
+                continue
+            raw_q = match.groupdict().get("q") or (match.group(match.lastindex) if match.lastindex else None)
+            try:
+                qty_val = float(str(raw_q).replace(",", ""))
+            except (TypeError, ValueError):
+                continue
+            if qty_val <= 0:
+                continue
+            key = f"{desc.lower()}|{unit}"
+            if key in seen:
+                break
+            seen.add(key)
+            items.append(
+                _qty(
+                    desc,
+                    cat,
+                    unit,
+                    qty_val,
+                    f"Printed callout on '{filename}'",
+                    84.0,
+                )
+            )
+            break
+    return items
 
 
 # --- Trench from pipes (CAD) ------------------------------------------------

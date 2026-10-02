@@ -78,7 +78,7 @@ _LABEL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
         ),
         "water",
     ),
-    # Fittings (same line)
+    # Fittings / valves / hydrants (same line). Bends/tees need a printed EA count.
     (
         re.compile(
             rf"(?:{_SIZE}{_S})?"
@@ -88,6 +88,25 @@ _LABEL_PATTERNS: list[tuple[re.Pattern[str], str]] = [
             re.I,
         ),
         "water_fitting",
+    ),
+    # Quantified insulation / testing (printed count only)
+    (
+        re.compile(
+            r"(?P<kind>insulation|insulated\s+pipe|"
+            r"hydrostatic\s+test(?:ing)?|pressure\s+test(?:ing)?|water\s*main\s*test(?:ing)?)"
+            rf"{_S}(?P<qty>\d{{1,5}}){_S}(?:lf|ft|ea|each|ls)\b",
+            re.I,
+        ),
+        "water_extra",
+    ),
+    # RCP with length
+    (
+        re.compile(
+            rf"{_SIZE}{_S}(?:rcp|reinforced\s+concrete\s+pipe)\b"
+            rf"(?:{_S}{_QTY_LF})?",
+            re.I,
+        ),
+        "rcp",
     ),
     # Sanitary / storm mains with size + optional LF
     (
@@ -137,6 +156,12 @@ def _kind_description(kind: str, network: str, size: str | None) -> tuple[str, s
         if "tee" in k:
             return f"{size_bit}Water Tee".strip(), "Utilities", "EA"
         return f"{size_bit}Water Valve".strip(), "Utilities", "EA"
+    if network == "water_extra":
+        if "test" in k:
+            return "Water Main Testing", "Utilities", "EA"
+        return "Pipe Insulation", "Utilities", "LF"
+    if network == "rcp":
+        return f"{size_bit}RCP Storm Sewer".strip(), "Drainage", "LF"
     if network == "water" or "water" in k or k in {"wm", "w.m.", "w.m", "w m"}:
         return f"{size_bit}Water Main".strip(), "Utilities", "LF"
     if "sanitary" in k or k.startswith("ss"):
@@ -171,8 +196,6 @@ def extract_utility_label_items(
     found: dict[str, dict[str, Any]] = {}
 
     for pattern, network in _LABEL_PATTERNS:
-        if mains_only and network == "water_fitting":
-            continue
         for match in pattern.finditer(cleaned):
             gd = match.groupdict()
             size = _size_label(gd.get("size"))
@@ -192,6 +215,9 @@ def extract_utility_label_items(
                     qty = abs(b - a)
 
             if qty is None and unit == "EA":
+                # One hydrant/valve callout = one each. Do not invent fitting counts.
+                if re.search(r"bend|elbow|tee|fitting", desc, re.I):
+                    continue
                 qty = 1.0
 
             # Sized water main label without length: keep as EA? No — skip LF without qty
